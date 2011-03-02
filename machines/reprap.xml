@@ -87,4 +87,38 @@ M108 S0
 M108 S0
                 </cooldown>
         </machine>
+        
+                <machine experimental="1">
+                <name>RepRap RAMPS w/Tonokip (115200 baud)</name>
+                <geometry type="cartesian">
+                        <!-- different pulleys on X and Y axii -->
+                        <axis id="x" length="200" maxfeedrate="7000" scale="47.069852" endstops="min"/>  <!-- 16th-step driver -->
+                        <axis id="y" length="200" maxfeedrate="7000" scale="47.0698523" endstops="min"/>  <!-- 16th-step driver -->
+                        <axis id="z" length="140" maxfeedrate="350" scale="160" endstops="min"/> <!-- quarter-step driver -->
+                </geometry>
+                <tools>
+                        <tool name="Stepper-based extruder" type="extruder" material="abs" motor="true" floodcoolant="false" mistcoolant="false" fan="true" valve="false" collet="false" heater="true" motor_steps="200" heatedplatform="true" />
+                </tools>
+                <clamps></clamps>
+                <help name="RepRap Help" url="http://www.reprap.org/ReplicatorG"></help>
+                <driver name="reprap5d">
+                        <!-- optional, defaults to first serial port found.    <portname>COM1</portname> -->
+                        <rate>115200</rate>
+                        <parity>8</parity>
+												<pulserts>true</pulserts>
+												<waitforstart enabled="true" timeout="2000" retries="3"></waitforstart>
+												<fived>true</fived>
+												<debugLevel>1</debugLevel>
+                        <!-- optional, defaults to 1.                          <databits>1</databits> -->
+                        <!-- optional, defaults to N.                          <stopbits>N</stopbits> -->
+                </driver> 
+                <warmup>
+                </warmup>
+                <cooldown>
+(Turn off steppers after a build.)
+M108 S0
+M84
+                </cooldown>
+        </machine>
+
 </machines>

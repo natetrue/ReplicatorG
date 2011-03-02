@@ -224,6 +224,8 @@ public class RepRap5DDriver extends SerialDriver implements SerialFifoEventListe
 		// wait till we're initialised
 		if (!isInitialized()) {
 			Base.logger.info("Initializing Serial.");
+			serial.clear();
+			serial.setTimeout(1000);
 
 			if (pulseRTS)
 			{
@@ -410,6 +412,7 @@ public class RepRap5DDriver extends SerialDriver implements SerialFifoEventListe
 			// skip empty commands.
 			if (next.length() == 0)
 			{
+			    sendCommandLock.unlock();
 				return;
 			}
 	
@@ -431,7 +434,7 @@ public class RepRap5DDriver extends SerialDriver implements SerialFifoEventListe
 			Base.logger.finest("resending: "+next);
 		}
 		// Block until we can fit the command on the Arduino
-/*		synchronized(bufferLock)
+		synchronized(bufferLock)
 		{
 			//wait for the number of commands queued in the buffer to shrink before 
 			//adding the next command to it.
@@ -447,7 +450,7 @@ public class RepRap5DDriver extends SerialDriver implements SerialFifoEventListe
 					return;
 				}
 			}
-		}*/
+		}
 		
 
 		// debug... let us know whats up!
@@ -650,7 +653,7 @@ public class RepRap5DDriver extends SerialDriver implements SerialFifoEventListe
 					machine.currentTool().setCurrentTemperature(
 							Double.parseDouble(temp));
 			    }
-				r = Pattern.compile("^ok.*b:([0-9\\.]+)$");
+				r = Pattern.compile("b:([0-9\\.]+)$");
 			    m = r.matcher(line);
 			    if (m.find( )) {
 			    	String bedTemp = m.group(1);
@@ -665,12 +668,14 @@ public class RepRap5DDriver extends SerialDriver implements SerialFifoEventListe
 					okReceived.set(true);
 					okReceived.notifyAll();
 				}
-				bufferSize -= commands.remove();
+				if (commands.size() > 0) bufferSize -= commands.remove();
 
 				bufferLock.lock();
 				//Notify the thread waitining in this gcode's sendCommand method that the gcode has been received.
-				String notifier = buffer.removeLast();
-				synchronized(notifier) { notifier.notifyAll(); }
+				if (buffer.size() > 0) {
+    	   			String notifier = buffer.removeLast();
+    				synchronized(notifier) { notifier.notifyAll(); }
+				}
 				
 				synchronized(bufferLock)
 				{ /*let any sendCommand method waiting to send know that the buffer is 
@@ -722,7 +727,7 @@ public class RepRap5DDriver extends SerialDriver implements SerialFifoEventListe
 				{
 					int badLineNumber = Integer.parseInt(
 							badLineMatch.group(1) );
-					if(debugLevel > 1)
+//			if(debugLevel > 0)
 						Base.logger.severe("Bad line number: " + badLineNumber + ", bufferedLineNumber: "+bufferedLineNumber + ", bufferedLine: \""+bufferedLine+"\"");
 
 					if (bufferedLineNumber != badLineNumber)
@@ -842,6 +847,7 @@ public class RepRap5DDriver extends SerialDriver implements SerialFifoEventListe
 
 	public void disableDrives() throws RetryException {
 		sendCommand("M18");
+		sendCommand("M84");
 
 		super.disableDrives();
 	}
@@ -967,6 +973,12 @@ public class RepRap5DDriver extends SerialDriver implements SerialFifoEventListe
 		super.readTemperature();
 	}
 
+	public void setPlatformTemperature(double temperature) throws RetryException {
+		sendCommand(_getToolCode() + "M140 S" + df.format(temperature));
+
+        super.setPlatformTemperature(temperature);
+	}
+
 	public double getPlatformTemperature(){
 		return machine.currentTool().getPlatformCurrentTemperature();
 	}
@@ -1059,7 +1071,7 @@ public class RepRap5DDriver extends SerialDriver implements SerialFifoEventListe
 
 	public synchronized void stop() {
 		// No implementation needed for synchronous machines.
-		//sendCommand("M0");
+		sendCommand("M112");
 		// M0 is the same as emergency stop: will hang all communications. You don't really want that...
 		Base.logger.info("RepRap/Ultimaker Machine stop called.");
 	}
