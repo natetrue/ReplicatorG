@@ -6,6 +6,7 @@ package replicatorg.app.ui;
 import java.awt.Container;
 import java.awt.Dimension;
 import java.awt.Font;
+import java.awt.Image;
 import java.awt.Toolkit;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
@@ -132,7 +133,10 @@ public class PreferencesWindow extends JFrame implements GuiConstants {
 	public PreferencesWindow() {
 		super("Preferences");
 		setResizable(true);
-
+		
+		Image icon = Base.getImage("images/icon.gif", this);
+		setIconImage(icon);
+		
 		Container content = this.getContentPane();
 		content.setLayout(new MigLayout("fill"));
 
@@ -142,12 +146,12 @@ public class PreferencesWindow extends JFrame implements GuiConstants {
 		content.add(new JLabel("  (requires restart of ReplicatorG)"), "wrap");
 
 		addCheckboxForPref(content,"Monitor temperature during builds","build.monitor_temp",false);
-		addCheckboxForPref(content,"Honor serial port selection in machines.xml","serial.use_machines",true);
 		addCheckboxForPref(content,"Automatically connect at startup","replicatorg.autoconnect",true);
 		addCheckboxForPref(content,"Show experimental machine profiles","machine.showExperimental",false);
 		addCheckboxForPref(content,"Show simulator during builds","build.showSimulator",false);
 		addCheckboxForPref(content,"Break Z motion into seperate moves (normally false)","replicatorg.parser.breakzmoves",false);
-
+		addCheckboxForPref(content,"Show starfield in model preview window","ui.show_starfield",false);
+		
 		content.add(new JLabel("Firmware update URL: "),"split");
 		firmwareUpdateUrlField = new JTextField(34);
 		content.add(firmwareUpdateUrlField,"wrap");

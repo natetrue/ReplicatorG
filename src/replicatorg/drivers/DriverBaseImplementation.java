@@ -24,6 +24,7 @@
 package replicatorg.drivers;
 
 import java.util.EnumSet;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Level;
@@ -33,16 +34,14 @@ import javax.vecmath.Point3d;
 import org.w3c.dom.Node;
 
 import replicatorg.app.Base;
-import replicatorg.app.GCodeParser;
 import replicatorg.app.exceptions.BuildFailureException;
-import replicatorg.app.exceptions.GCodeException;
 import replicatorg.machine.model.AxisId;
 import replicatorg.machine.model.MachineModel;
 import replicatorg.util.Point5d;
 
-public class DriverBaseImplementation implements Driver {
-	// our gcode parser
-	private GCodeParser parser;
+public class DriverBaseImplementation implements Driver, DriverQueryInterface{
+//	// our gcode parser
+//	private GCodeParser parser;
 
 	// models for our machine
 	protected MachineModel machine;
@@ -60,11 +59,8 @@ public class DriverBaseImplementation implements Driver {
 	// are we initialized?
 	private AtomicBoolean isInitialized = new AtomicBoolean(false);
 
-	// the length of our last move.
-	private double moveLength = 0.0;
-
 	// our error variable.
-	private String error = "";
+	ConcurrentLinkedQueue<DriverError> errorList;
 
 	// how fast are we moving in mm/minute
 	private double currentFeedrate;
@@ -77,37 +73,53 @@ public class DriverBaseImplementation implements Driver {
 	static public int INCREMENTAL = 1;
 
 	/**
+	 * Support for emergency stop is not assumed until it is detected. Detection of this feature should be in initialization.
+	 */
+	protected boolean hasEmergencyStop = false;
+	
+	/**
+	 * Support for soft stop (e.g. for continuous jog) is not assumed until it is detected. Detection of this feature should be in initialization.
+	 */
+	protected boolean hasSoftStop = false;
+	
+	/**
 	 * Creates the driver object.
 	 */
 	public DriverBaseImplementation() {
-		// create our parser object
-		parser = new GCodeParser();
+		errorList = new ConcurrentLinkedQueue<DriverError>();
 
 		// initialize our offsets
 		offsets = new Point3d[7];
 		for (int i = 0; i < 7; i++)
 			offsets[i] = new Point3d();  // Constructs and initializes a Point3d to (0,0,0)
 
-		// initialize our driver
-		parser.init(this);
-
 		// TODO: do this properly.
 		machine = new MachineModel();
-	}
-
+	}	
+	
 	public void loadXML(Node xml) {
 	}
 	
-	public void updateManualControl() throws InterruptedException
-	{
-		
+	public void updateManualControl() {
+	}
+	
+	public boolean isPassthroughDriver() {
+		return false;
+	}
+	
+	/**
+	 * Execute a line of GCode directly (ie, don't use the parser)
+	 * @param code The line of GCode that we should execute
+	 */
+	public void executeGCodeLine(String code) {
+		Base.logger.severe("Ignoring executeGCode command: " + code);
 	}
 
 	public void dispose() {
 		if (Base.logger.isLoggable(Level.FINE)) {
 			Base.logger.fine("Disposing of driver " + getDriverName());
 		}
-		parser = null;
+//		parser = null;
 	}
 
 	/***************************************************************************
@@ -138,34 +150,33 @@ public class DriverBaseImplementation implements Driver {
 	 * Error handling functions
 	 **************************************************************************/
 
+	public void assessState() {
+	}
+	
+	protected void setError(DriverError newError) {
+		errorList.add(newError);
+	}
+	
 	protected void setError(String e) {
-		error = e;
+		setError(new DriverError(e, true));
 	}
 
+	
+	public boolean hasError() {
+		return (errorList.size() > 0);
+	}
+	
+	public DriverError getError() {
+		return errorList.remove();
+	}
+
+	@Deprecated
 	public void checkErrors() throws BuildFailureException {
-		if (error.length() > 0)
-			throw new BuildFailureException(error);
+		if (errorList.size() > 0) {
+			throw new BuildFailureException(getError().getMessage());
+		}
 	}
 
-	/***************************************************************************
-	 * Parser handling functions
-	 **************************************************************************/
-
-	public void parse(String cmd) {
-		// reset our values.
-		moveLength = 0.0;
-
-		parser.parse(cmd);
-	}
-
-	public GCodeParser getParser() {
-		return parser;
-	}
-
-	public void execute() throws GCodeException, InterruptedException, RetryException {
-		assert (parser != null);
-		parser.execute();
-	}
 
 	public boolean isFinished() {
 		return true;
@@ -180,19 +191,6 @@ public class DriverBaseImplementation implements Driver {
 	 */
 	public boolean isBufferEmpty() {
 		return true;
-	}
-
-	/**
-	 * Wait until we've finished all commands.
-	 */
-	public void waitUntilBufferEmpty() {
-		// sleep until we're empty.
-		while (!isBufferEmpty()) {
-			try {
-				Thread.sleep(50);
-			} catch (Exception e) {
-			}
-		}
 	}
 
 	/***************************************************************************
@@ -255,24 +253,40 @@ public class DriverBaseImplementation implements Driver {
 	 * Drivers should override this method to get the actual position as recorded by the machine.
 	 * This is useful, for example, after stopping a print, to ask the machine where it is.
 	 */
-	protected Point5d reconcilePosition() {
+	protected Point5d reconcilePosition() throws RetryException {
 		throw new RuntimeException("Position reconcilliation requested, but not implemented for this driver");
 	}
 	
-	public Point5d getCurrentPosition() {
+	public Point5d getCurrentPosition(boolean forceUpdate) {
 		synchronized(currentPosition)
 		{
 			// Explicit null check; otherwise reconcilePosition, a potentially expensive call (including a packet
 			// transaction) will be called every time.
-			if (currentPosition.get() == null) {
-				currentPosition.compareAndSet(null, reconcilePosition());
+			boolean lost = (currentPosition.get() == null);
+			
+			if (lost || forceUpdate) {
+				try {
+					// Try to reconcile our position. If it's not possible, then return a zero point, but don't save it. 
+					Point5d newPoint = reconcilePosition();
+					
+					if (newPoint == null && !forceUpdate) {
+						return new Point5d();
+					}
+					
+					currentPosition.set(newPoint);
+					
+				} catch (RetryException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
 			}
+			
 			return new Point5d(currentPosition.get());
 		}
 	}
 
 	public Point5d getPosition() {
-		return getCurrentPosition();
+		return getCurrentPosition(false);
 	}
 
 	/**
@@ -281,17 +295,6 @@ public class DriverBaseImplementation implements Driver {
 	 * @throws RetryException 
 	 */
 	public void queuePoint(Point5d p) throws RetryException {
-		Point5d delta = getDelta(p);
-
-		// add to the total length
-		moveLength += delta.get3D().distance(new Point3d());
-
-		// Calculate the feedrate. This is the speed that the toolhead will
-		// be traveling at.
-		double feedrate = getSafeFeedrate(delta);
-
-		// mostly for estimation driver.
-		queuePoint(p, feedrate);
 		setInternalPosition(p);
 	}
 
@@ -299,14 +302,6 @@ public class DriverBaseImplementation implements Driver {
 		currentPosition.set(position);
 	}
 	
-	protected void queuePoint(Point5d p, Double feedrate) {
-		// do nothing here.
-	}
-
-	public double getMoveLength() {
-		return moveLength;
-	}
-
 	/**
 	 * sets the feedrate in mm/minute
 	 */
@@ -365,7 +360,7 @@ public class DriverBaseImplementation implements Driver {
 
 	public Point5d getDelta(Point5d p) {
 		Point5d delta = new Point5d();
-		Point5d current = getCurrentPosition();
+		Point5d current = getCurrentPosition(false);
 
 		delta.sub(p, current); // delta = p - current
 		delta.absolute(); // absolute value of each component
@@ -465,16 +460,26 @@ public class DriverBaseImplementation implements Driver {
 		machine.currentTool().enableMotor();
 	}
 
+	public void enableMotor(long millis) throws RetryException {
+		enableMotor();
+		delay(millis);
+		disableMotor();
+	}
+
 	public void disableMotor() throws RetryException {
 		machine.currentTool().disableMotor();
 	}
 
 	public double getMotorRPM() {
-		return machine.currentTool().getMotorSpeedReadingRPM();
+		return machine.currentTool().getMotorSpeedRPM();
 	}
 
 	public int getMotorSpeedPWM() {
 		return machine.currentTool().getMotorSpeedReadingPWM();
+	}
+
+	public double getMotorSteps() {
+		return machine.currentTool().getMotorSteps();
 	}
 
 	// TODO: These are backwards?
@@ -660,5 +665,25 @@ public class DriverBaseImplementation implements Driver {
 
 	public double getTemperatureSetting() {
 		return machine.currentTool().getTargetTemperature();
+	}
+
+	public void storeHomePositions(EnumSet<AxisId> axes) throws RetryException {
+	}
+
+	public void recallHomePositions(EnumSet<AxisId> axes) throws RetryException {
+	}
+
+	public boolean hasSoftStop() {
+
+		return hasSoftStop;
+	}
+
+	public boolean hasEmergencyStop() {
+		return hasEmergencyStop;
+	}
+
+	@Override
+	public Point5d getMaximumFeedrates() {
+		return (getMachine().getMaximumFeedrates());
 	}
 }

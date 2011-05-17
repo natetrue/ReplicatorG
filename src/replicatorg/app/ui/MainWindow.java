@@ -43,8 +43,6 @@ import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.awt.Toolkit;
 import java.awt.Window;
-import java.awt.datatransfer.DataFlavor;
-import java.awt.datatransfer.Transferable;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.KeyEvent;
@@ -77,8 +75,6 @@ import java.util.regex.Pattern;
 import javax.swing.AbstractAction;
 import javax.swing.Action;
 import javax.swing.ButtonGroup;
-import javax.swing.JCheckBoxMenuItem;
-import javax.swing.JComponent;
 import javax.swing.JDialog;
 import javax.swing.JFileChooser;
 import javax.swing.JFrame;
@@ -93,11 +89,8 @@ import javax.swing.JRadioButtonMenuItem;
 import javax.swing.JSplitPane;
 import javax.swing.KeyStroke;
 import javax.swing.SwingUtilities;
-import javax.swing.TransferHandler;
 import javax.swing.event.ChangeEvent;
 import javax.swing.event.ChangeListener;
-import javax.swing.event.MenuEvent;
-import javax.swing.event.MenuListener;
 import javax.swing.event.UndoableEditEvent;
 import javax.swing.event.UndoableEditListener;
 import javax.swing.filechooser.FileFilter;
@@ -107,18 +100,17 @@ import javax.swing.undo.CannotUndoException;
 import javax.swing.undo.CompoundEdit;
 import javax.swing.undo.UndoManager;
 
+import net.iharder.dnd.FileDrop;
 import net.miginfocom.swing.MigLayout;
 import replicatorg.app.Base;
 import replicatorg.app.MRUList;
-import replicatorg.app.MachineController;
-import replicatorg.app.MachineFactory;
 import replicatorg.app.Base.InitialOpenBehavior;
-import replicatorg.app.exceptions.SerialException;
 import replicatorg.app.syntax.JEditTextArea;
 import replicatorg.app.syntax.PdeKeywords;
 import replicatorg.app.syntax.PdeTextAreaDefaults;
 import replicatorg.app.syntax.SyntaxDocument;
 import replicatorg.app.syntax.TextAreaPainter;
+import replicatorg.app.ui.controlpanel.ControlPanelWindow;
 import replicatorg.app.ui.modeling.PreviewPanel;
 import replicatorg.app.util.PythonUtils;
 import replicatorg.app.util.SwingPythonSelector;
@@ -129,8 +121,10 @@ import replicatorg.drivers.MultiTool;
 import replicatorg.drivers.OnboardParameters;
 import replicatorg.drivers.RealtimeControl;
 import replicatorg.drivers.SDCardCapture;
-import replicatorg.drivers.UsesSerial;
+import replicatorg.machine.MachineInterface;
+import replicatorg.machine.MachineFactory;
 import replicatorg.machine.MachineListener;
+import replicatorg.machine.MachineLoader;
 import replicatorg.machine.MachineProgressEvent;
 import replicatorg.machine.MachineState;
 import replicatorg.machine.MachineStateChangeEvent;
@@ -169,8 +163,8 @@ public class MainWindow extends JFrame implements MRJAboutHandler, MRJQuitHandle
 	final static String GCODE_TAB_KEY = "GCODE";
 	// p5 icon for the window
 	Image icon;
-
-	MachineController machine;
+	
+	MachineLoader machineLoader;
 
 	static public final KeyStroke WINDOW_CLOSE_KEYSTROKE = KeyStroke
 			.getKeyStroke('W', Toolkit.getDefaultToolkit()
@@ -227,6 +221,7 @@ public class MainWindow extends JFrame implements MRJAboutHandler, MRJQuitHandle
 
 	JMenu machineMenu;
 	MachineMenuListener machineMenuListener;
+	SerialMenuListener serialMenuListener;
 
 	public boolean building;
 	public boolean simulating;
@@ -272,6 +267,8 @@ public class MainWindow extends JFrame implements MRJAboutHandler, MRJQuitHandle
 
 		PythonUtils.setSelector(new SwingPythonSelector(this));
 		
+		machineLoader = Base.getMachineLoader();
+		
 		// load up the most recently used files list
 		mruList = MRUList.getMRUList();
 
@@ -296,7 +293,6 @@ public class MainWindow extends JFrame implements MRJAboutHandler, MRJQuitHandle
 		menubar.add(buildEditMenu());
 		menubar.add(buildGCodeMenu());
 		menubar.add(buildMachineMenu());
-		menubar.add(buildHelpMenu());
 
 		setJMenuBar(menubar);
 		
@@ -323,6 +319,19 @@ public class MainWindow extends JFrame implements MRJAboutHandler, MRJQuitHandle
 
 		splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, cardPanel,
 				console);
+		
+        new FileDrop( null, cardPanel, /*dragBorder,*/ new FileDrop.Listener()
+        {   public void filesDropped( java.io.File[] files )
+            {   
+        		// for( java.io.File file : files )
+        		// We can really only handle opening one file, so just try the first one.
+        		try {
+					Base.logger.fine( files[0].getCanonicalPath() + "\n" );
+					handleOpen(files[0].getCanonicalPath());
+				} catch (IOException e) {
+				}
+            }   // end filesDropped
+        }); // end FileDrop.Listener
 
 		//splitPane.setOneTouchExpandable(true);
 		// repaint child panes while resizing: a little heavyweight
@@ -346,61 +355,66 @@ public class MainWindow extends JFrame implements MRJAboutHandler, MRJQuitHandle
 		pane.add(splitPane,"growx,growy,shrinkx,shrinky");
 		pack();
 		
-		textarea.setTransferHandler(new TransferHandler() {
-			private static final long serialVersionUID = 2093323078348794384L;
+//		textarea.setTransferHandler(new TransferHandler() {
+//			private static final long serialVersionUID = 2093323078348794384L;
+//
+//			public boolean canImport(JComponent dest, DataFlavor[] flavors) {
+//				// claim that we can import everything
+//				return true;
+//			}
+//
+//			public boolean importData(JComponent src, Transferable transferable) {
+//				DataFlavor[] flavors = transferable.getTransferDataFlavors();
+//
+//				int successful = 0;
+//
+//				for (int i = 0; i < flavors.length; i++) {
+//					try {
+//						// System.out.println(flavors[i]);
+//						// System.out.println(transferable.getTransferData(flavors[i]));
+//						Object stuff = transferable.getTransferData(flavors[i]);
+//						if (!(stuff instanceof java.util.List<?>))
+//							continue;
+//						java.util.List<?> list = (java.util.List<?>) stuff;
+//
+//						for (int j = 0; j < list.size(); j++) {
+//							Object item = list.get(j);
+//							if (item instanceof File) {
+//								File file = (File) item;
+//
+//								// see if this is a .gcode file to be opened
+//								String filename = file.getName();
+//								// FIXME: where did this come from?  Need case insensitivity.
+//								if (filename.endsWith(".gcode") || filename.endsWith(".ngc")) {
+//									handleOpenFile(file);
+//									return true;
+//								}
+//							}
+//						}
+//
+//					} catch (Exception e) {
+//						e.printStackTrace();
+//						return false;
+//					}
+//				}
+//
+//				if (successful == 0) {
+//					error("No files were added to the sketch.");
+//
+//				} else if (successful == 1) {
+//					message("One file added to the sketch.");
+//
+//				} else {
+//					message(successful + " files added to the sketch.");
+//				}
+//				return true;
+//			}
+//		});
 
-			public boolean canImport(JComponent dest, DataFlavor[] flavors) {
-				// claim that we can import everything
-				return true;
-			}
-
-			public boolean importData(JComponent src, Transferable transferable) {
-				DataFlavor[] flavors = transferable.getTransferDataFlavors();
-
-				int successful = 0;
-
-				for (int i = 0; i < flavors.length; i++) {
-					try {
-						// System.out.println(flavors[i]);
-						// System.out.println(transferable.getTransferData(flavors[i]));
-						Object stuff = transferable.getTransferData(flavors[i]);
-						if (!(stuff instanceof java.util.List<?>))
-							continue;
-						java.util.List<?> list = (java.util.List<?>) stuff;
-
-						for (int j = 0; j < list.size(); j++) {
-							Object item = list.get(j);
-							if (item instanceof File) {
-								File file = (File) item;
-
-								// see if this is a .gcode file to be opened
-								String filename = file.getName();
-								// FIXME: where did this come from?  Need case insensitivity.
-								if (filename.endsWith(".gcode") || filename.endsWith(".ngc")) {
-									handleOpenFile(file);
-									return true;
-								}
-							}
-						}
-
-					} catch (Exception e) {
-						e.printStackTrace();
-						return false;
-					}
-				}
-
-				if (successful == 0) {
-					error("No files were added to the sketch.");
-
-				} else if (successful == 1) {
-					message("One file added to the sketch.");
-
-				} else {
-					message(successful + " files added to the sketch.");
-				}
-				return true;
-			}
-		});
+		// Have UI elements listen to machine state.
+		machineLoader.addMachineListener(this);
+		machineLoader.addMachineListener(machineStatusPanel);
+		machineLoader.addMachineListener(buttons);			
 	}
 
 	// ...................................................................
@@ -448,40 +462,23 @@ public class MainWindow extends JFrame implements MRJAboutHandler, MRJQuitHandle
 	 */
 	public void applyPreferences() {
 
-		// apply the setting for 'use external editor'
-		boolean external = Base.preferences.getBoolean("editor.external",false);
-
-		textarea.setEditable(!external);
-		saveMenuItem.setEnabled(!external);
-		saveAsMenuItem.setEnabled(!external);
-		// beautifyMenuItem.setEnabled(!external);
+		textarea.setEditable(true);
+		saveMenuItem.setEnabled(true);
+		saveAsMenuItem.setEnabled(true);
 
 		TextAreaPainter painter = textarea.getPainter();
-		if (external) {
-			// disable line highlight and turn off the caret when disabling
-			Color color = Base.getColorPref("editor.external.bgcolor","#168299");
-			painter.setBackground(color);
-			painter.setLineHighlightEnabled(false);
-			textarea.setCaretVisible(false);
-
-		} else {
-			Color color = Base.getColorPref("editor.bgcolor","#ffffff");
-			painter.setBackground(color);
-			boolean highlight = Base.preferences.getBoolean("editor.linehighlight",true);
-			painter.setLineHighlightEnabled(highlight);
-			textarea.setCaretVisible(true);
-		}
+		
+		Color color = Base.getColorPref("editor.bgcolor","#ffffff");
+		painter.setBackground(color);
+		boolean highlight = Base.preferences.getBoolean("editor.linehighlight",true);
+		painter.setLineHighlightEnabled(highlight);
+		textarea.setCaretVisible(true);
 
 		// apply changes to the font size for the editor
 		// TextAreaPainter painter = textarea.getPainter();
 		painter.setFont(Base.getFontPref("editor.font","Monospaced,plain,10"));
 		// Font font = painter.getFont();
 		// textarea.getPainter().setFont(new Font("Courier", Font.PLAIN, 36));
-
-		// in case moved to a new location
-		// For 0125, changing to async version (to be implemented later)
-		// sketchbook.rebuildMenus();
-		//sketchbook.rebuildMenusAsync();
 	}
 
 	/**
@@ -522,6 +519,19 @@ public class MainWindow extends JFrame implements MRJAboutHandler, MRJQuitHandle
 	}
 	
 	public void runToolpathGenerator() {
+		// Check if the model is on the platform
+		if (!getPreviewPanel().getModel().isOnPlatform()) {
+			String message = "The bottom of the model doesn't appear to be touching the build surface, and attempting to print it could damage your machine. Ok to move it to the build platform?";
+			int option = JOptionPane.showConfirmDialog(this, message , "Place model on build surface?", 
+					JOptionPane.YES_NO_CANCEL_OPTION, JOptionPane.QUESTION_MESSAGE);
+			if (option == JOptionPane.CANCEL_OPTION) { return; }
+			if (option == JOptionPane.YES_OPTION) {
+				// put the model on the platform.
+				getPreviewPanel().getModel().putOnPlatform();
+			}
+				
+		}
+		
 		// Check for modified STL
 		if (build.getModel().isModified()) {
 			final String message = "<html>You have made changes to this model.  Any unsaved changes will<br>" +
@@ -540,69 +550,72 @@ public class MainWindow extends JFrame implements MRJAboutHandler, MRJQuitHandle
 		tgt.addListener(this);
 		tgt.start();
 	}
-		
-	// ...................................................................
+	
 
 	private JMenu serialMenu = null;
 	
 	private void reloadSerialMenu() {
 		if (serialMenu == null) return;
+		
+		serialMenuListener = new SerialMenuListener(); 
+		
 		serialMenu.removeAll();
-		if (machine == null) {
-			JMenuItem item = new JMenuItem("No machine selected.");
-			item.setEnabled(false);
-			serialMenu.add(item);
-			return;
-		} else if (!(machine.driver instanceof UsesSerial))  {
-			JMenuItem item = new JMenuItem("Currently selected machine does not use a serial port.");
-			item.setEnabled(false);
-			serialMenu.add(item);
-			return;
-		}
+//		if (machine == null) {
+//			JMenuItem item = new JMenuItem("No machine selected.");
+//			item.setEnabled(false);
+//			serialMenu.add(item);
+//			return;
+//		} else if (!(machine.getDriver() instanceof UsesSerial))  {
+//			JMenuItem item = new JMenuItem("Currently selected machine does not use a serial port.");
+//			item.setEnabled(false);
+//			serialMenu.add(item);
+//			return;
+//		}
 		
 		String currentName = null;
-		UsesSerial us = (UsesSerial)machine.driver;
-		if (us.getSerial() != null) {
-			currentName = us.getSerial().getName();
-		}
-		else {
+//		UsesSerial us = (UsesSerial)machine.getDriver();
+//		if (us.getSerial() != null) {
+//			currentName = us.getSerial().getName();
+//		}
+//		else {
 			currentName = Base.preferences.get("serial.last_selected", null);
-		}
+//		}
 		Vector<Name> names = Serial.scanSerialNames();
 		Collections.sort(names);
+		
+		// Filter /dev/cu. devices on OS X, since they work the same as .tty for our purposes.
+		if (Base.isMacOS()) {
+			Vector<Name> filteredNames = new Vector<Name>();
+			
+			for (Name name : names) {
+				if(!(name.getName().startsWith("/dev/cu")
+					|| name.getName().equals("/dev/tty.Bluetooth-Modem")
+					|| name.getName().equals("/dev/tty.Bluetooth-PDA-Sync"))) {
+					filteredNames.add(name);
+				}
+			}
+			
+			names = filteredNames;
+		}
+
+		
 		ButtonGroup radiogroup = new ButtonGroup();
 		for (Name name : names) {
 			JRadioButtonMenuItem item = new JRadioButtonMenuItem(name.toString());
 			item.setEnabled(name.isAvailable());
+			
 			item.setSelected(name.getName().equals(currentName));
-			final String portName = name.getName();
-			item.addActionListener(new ActionListener() {
-				public void actionPerformed(ActionEvent e) {
-					Thread t = new Thread() {
-						public void run() {
-							try {
-								UsesSerial us = (UsesSerial)machine.driver;
-								if (us != null) synchronized(us) {
-										us.setSerial(new Serial(portName, us));
-										Base.preferences.put("serial.last_selected", portName);
-										machine.reset();
-								}
-							} catch (SerialException se) {
-								se.printStackTrace();
-							}
-
-						}
-					};
-					t.start();
-				}
-			});
+//			final String portName = name.getName();
+//			Base.preferences.put("serial.last_selected", portName);
+			
+			item.addActionListener(serialMenuListener);
 			radiogroup.add(item);
 			serialMenu.add(item);
 		}
 		if (names.isEmpty()) {
 			JMenuItem item = new JMenuItem("No serial ports detected");
 			item.setEnabled(false);
-			serialMenu.add(item);			
+			serialMenu.add(item);
 		}
 		serialMenu.addSeparator();
 		JMenuItem item = new JMenuItem("Rescan serial ports");
@@ -694,11 +707,11 @@ public class MainWindow extends JFrame implements MRJAboutHandler, MRJQuitHandle
 		menu.addSeparator();
 		menu.add(buildExamplesMenu()); 
 		menu.add(buildScriptsMenu()); 
-		menu.addSeparator();
 
 		// macosx already has its own preferences and quit menu
 		if (!Base.isMacOS()) {
-
+			menu.addSeparator();
+			
 			item = newJMenuItem("Preferences", ',');
 			item.addActionListener(new ActionListener() {
 				public void actionPerformed(ActionEvent e) {
@@ -810,6 +823,7 @@ public class MainWindow extends JFrame implements MRJAboutHandler, MRJQuitHandle
 				handleSimulate();
 			}
 		});
+		item.setEnabled(false);
 		menu.add(item);
 
 		buildMenuItem = newJMenuItem("Build", 'B');
@@ -873,20 +887,6 @@ public class MainWindow extends JFrame implements MRJAboutHandler, MRJQuitHandle
 		populateMachineMenu();
 		menu.add(machineMenu);
 
-		menu.addMenuListener(new MenuListener() {
-			public void menuCanceled(MenuEvent e) {
-			}
-
-			public void menuDeselected(MenuEvent e) {
-			}
-
-			public void menuSelected(MenuEvent e) {
-				populateMachineMenu();
-			}
-		});
-
-		machineMenuListener = new MachineMenuListener();
-
 		serialMenu = new JMenu("Serial Port");
 		reloadSerialMenu();
 		menu.add(serialMenu);
@@ -930,8 +930,7 @@ public class MainWindow extends JFrame implements MRJAboutHandler, MRJQuitHandle
 				handleRealTimeControl();
 			}
 		});
-		if (machine != null && 
-				(machine.driver instanceof RealtimeControl))
+		if (machineLoader.getDriver() instanceof RealtimeControl)
 		{
 			realtimeControlItem.setVisible(false);
 			menu.add(realtimeControlItem);
@@ -949,20 +948,19 @@ public class MainWindow extends JFrame implements MRJAboutHandler, MRJQuitHandle
 	}
 
 	protected void handleToolheadIndexing() {
-		if (machine == null || 
-				!(machine.driver instanceof MultiTool)) {
+		if (!(machineLoader.getDriver() instanceof MultiTool)) {
 			JOptionPane.showMessageDialog(
 					this,
 					"ReplicatorG can't connect to your machine or toolhead index setting is not supported.\nTry checking your settings and resetting your machine.",
 					"Can't run toolhead indexing", JOptionPane.ERROR_MESSAGE);
+			return;
 		} else {
-			ToolheadIndexer indexer = new ToolheadIndexer(this,machine.driver);
+			ToolheadIndexer indexer = new ToolheadIndexer(this,machineLoader.getDriver());
 			indexer.setVisible(true);
 		}
 	}
 	public boolean supportsRealTimeControl() {
-		if (machine == null || 
-				!(machine.driver instanceof RealtimeControl)) {
+		if (!(machineLoader.getDriver() instanceof RealtimeControl)) {
 			return false;
 		}
 		Base.logger.info("Supports RC");
@@ -975,7 +973,7 @@ public class MainWindow extends JFrame implements MRJAboutHandler, MRJQuitHandle
 					"Real time control is not supported for your machine's driver.",
 					"Can't enabled real time control", JOptionPane.ERROR_MESSAGE);
 		} else {
-			RealtimePanel window = RealtimePanel.getRealtimePanel(machine);
+			RealtimePanel window = RealtimePanel.getRealtimePanel(machineLoader.getMachine());
 			if (window != null) {
 				window.pack();
 				window.setVisible(true);
@@ -990,119 +988,60 @@ public class MainWindow extends JFrame implements MRJAboutHandler, MRJQuitHandle
 				return;
 			}
 
-			int count = machineMenu.getItemCount();
-			for (int i = 0; i < count; i++) {
-				((JCheckBoxMenuItem) machineMenu.getItem(i)).setState(false);
+//			int count = machineMenu.getItemCount();
+//			for (int i = 0; i < count; i++) {
+//				((JCheckBoxMenuItem) machineMenu.getItem(i)).setState(false);
+//			}
+
+//			item.setState(true);
+			if (e.getSource() instanceof JRadioButtonMenuItem) {
+				JRadioButtonMenuItem item = (JRadioButtonMenuItem) e.getSource();
+				final String name = item.getText();
+				Base.preferences.put("machine.name", name);
 			}
-
-			JCheckBoxMenuItem item = (JCheckBoxMenuItem) e.getSource();
-			item.setState(true);
-			final String name = item.getText();
-			Base.preferences.put("machine.name", name);
-
-			// load it and set it.
-			Thread t = new Thread() {
-				public void run() {
-					loadMachine(name, (machine != null) && machine.getMachineState().isConnected());
-				}
-			};
-			t.start();
 		}
 	}
+	class SerialMenuListener implements ActionListener {
+		public void actionPerformed(ActionEvent e) {
+			if (serialMenu == null) {
+				System.out.println("serialMenu is null");
+				return;
+			}
 
+			if (e.getSource() instanceof JRadioButtonMenuItem) {
+				JRadioButtonMenuItem item = (JRadioButtonMenuItem) e.getSource();
+				final String name = item.getText().split(" ")[0];
+				Base.preferences.put("serial.last_selected", name);
+			}
+		}
+	}
+	
 	protected void populateMachineMenu() {
 		machineMenu.removeAll();
-		boolean empty = true;
-
+		machineMenuListener = new MachineMenuListener();
+		
+		Vector<String> names = new Vector<String>();
 		try {
 			for (String name : MachineFactory.getMachineNames() ) {
-				JMenuItem rbMenuItem = new JCheckBoxMenuItem(name,
-						name.equals(Base.preferences
-								.get("machine.name",null)));
-				rbMenuItem.addActionListener(machineMenuListener);
-				machineMenu.add(rbMenuItem);
-				empty = false;
-			}
-			if (!empty) {
-				// System.out.println("enabling the machineMenu");
-				machineMenu.setEnabled(true);
+				names.add(name);
 			}
 		} catch (Exception exception) {
 			System.out.println("error retrieving machine list");
 			exception.printStackTrace();
 		}
+		
+		Collections.sort(names);
+		ButtonGroup radiogroup = new ButtonGroup();
+		for (String name : names ) {
+						
+			JRadioButtonMenuItem item = new JRadioButtonMenuItem(name);
+			item.setSelected(name.equals(Base.preferences.get("machine.name",null)));
+			item.addActionListener(machineMenuListener);			
 
-		if (machineMenu.getItemCount() == 0)
-			machineMenu.setEnabled(false);
-	}
-
-	protected JMenu buildHelpMenu() {
-		JMenu menu = new JMenu("Help");
-		JMenuItem item;
-
-		if (!Base.isLinux()) {
-			item = newJMenuItem("Getting Started", '1');
-			item.addActionListener(new ActionListener() {
-				public void actionPerformed(ActionEvent e) {
-					Base.openURL("http://www.replicat.org/getting-started");
-				}
-			});
-			menu.add(item);
+			radiogroup.add(item);
+			machineMenu.add(item);
 		}
-
-		item = newJMenuItem("Hardware Setup", '2');
-		item.addActionListener(new ActionListener() {
-			public void actionPerformed(ActionEvent e) {
-				Base.openURL("http://www.replicat.org/hardware");
-			}
-		});
-		menu.add(item);
-
-		item = newJMenuItem("Troubleshooting", '3');
-		item.addActionListener(new ActionListener() {
-			public void actionPerformed(ActionEvent e) {
-				Base.openURL("http://www.replicat.org/troubleshooting");
-			}
-		});
-		menu.add(item);
-
-		item = newJMenuItem("Reference", '4');
-		item.addActionListener(new ActionListener() {
-			public void actionPerformed(ActionEvent e) {
-				Base.openURL("http://www.replicat.org/reference");
-			}
-		});
-		menu.add(item);
-
-		item = newJMenuItem("Frequently Asked Questions", '5');
-		item.addActionListener(new ActionListener() {
-			public void actionPerformed(ActionEvent e) {
-				Base.openURL("http://www.replicat.org/faq");
-			}
-		});
-		menu.add(item);
-
-		item = newJMenuItem("Visit Replicat.orG", '6');
-		item.addActionListener(new ActionListener() {
-			public void actionPerformed(ActionEvent e) {
-				Base.openURL("http://www.replicat.org/");
-			}
-		});
-		menu.add(item);
-
-		// macosx already has its own about menu
-		menu.addSeparator();
-		JMenuItem aboutitem = new JMenuItem("About ReplicatorG");
-		aboutitem.addActionListener(new ActionListener() {
-			public void actionPerformed(ActionEvent e) {
-				handleAbout();
-			}
-		});
-		menu.add(aboutitem);
-
-		return menu;
 	}
-
 
 	public JMenu buildEditMenu() {
 		JMenu menu = new JMenu("Edit");
@@ -1338,13 +1277,13 @@ public class MainWindow extends JFrame implements MRJAboutHandler, MRJQuitHandle
 	}
 
 	public void handleControlPanel() {
-		if (machine == null) {
+		if (!machineLoader.isLoaded()) {
 			JOptionPane.showMessageDialog(
 					this,
 					"ReplicatorG can't connect to your machine.\nTry checking your settings and resetting your machine.",
 					"Can't find machine", JOptionPane.ERROR_MESSAGE);
 		} else {
-			ControlPanelWindow window = ControlPanelWindow.getControlPanel(machine);
+			ControlPanelWindow window = ControlPanelWindow.getControlPanel(machineLoader.getMachine());
 			if (window != null) {
 				window.pack();
 				window.setVisible(true);
@@ -1354,49 +1293,49 @@ public class MainWindow extends JFrame implements MRJAboutHandler, MRJQuitHandle
 	}
 
 	public void handleDisconnect() {
-		if (machine == null) {
-			// machine already disconnected
-		} else {
-			machine.disconnect();
-		}
+		machineLoader.disconnect();
 	}
 	
+	// handleConnect means, 'if we aren't already connected to a machine, make
+	// a new one and connect to it'. This has the side effect of destroying
+	// any machine that might have been loaded but not connected
+	// TODO: eh?
 	public void handleConnect() {
-		if (machine != null && machine.getMachineState().getState() != MachineState.State.NOT_ATTACHED) {
-			// Already connected, ignore
-		} else {
-			String name = Base.preferences.get("machine.name", null);
-			if ( name != null ) {
-				loadMachine(name, true);
-			}
+		// If we are already connected, don't try to connect again.
+		if (machineLoader.isConnected()) {
+			return;
+		}
+		
+		String name = Base.preferences.get("machine.name", null);
+		if ( name != null ) {
+			loadMachine(name, true);
 		}
 	}
-
 	
 	public void handleOnboardPrefs() {
-		if (machine == null || 
-				!(machine.driver instanceof OnboardParameters)) {
+		if (!(machineLoader.getDriver() instanceof OnboardParameters)) {
 			JOptionPane.showMessageDialog(
 					this,
 					"ReplicatorG can't connect to your machine or onboard preferences are not supported.\nTry checking your settings and resetting your machine.",
 					"Can't run onboard prefs", JOptionPane.ERROR_MESSAGE);
-		} else {
-			MachineOnboardParameters moo = new MachineOnboardParameters((OnboardParameters)machine.driver,machine.driver);
-			moo.setVisible(true);
+			return;
 		}
+		
+		MachineOnboardParameters moo = new MachineOnboardParameters((OnboardParameters)machineLoader.getDriver(),machineLoader.getDriver());
+		moo.setVisible(true);
 	}
 
 	public void handleExtruderPrefs() {
-		if (machine == null || 
-				!(machine.driver instanceof OnboardParameters)) {
+		if (!(machineLoader.getDriver() instanceof OnboardParameters)) {
 			JOptionPane.showMessageDialog(
 					this,
 					"ReplicatorG can't connect to your machine or onboard preferences are not supported.\nTry checking your settings and resetting your machine.",
 					"Can't run onboard prefs", JOptionPane.ERROR_MESSAGE);
-		} else {
-			ExtruderOnboardParameters eop = new ExtruderOnboardParameters((OnboardParameters)machine.driver);
-			eop.setVisible(true);
+			return;
 		}
+		
+		ExtruderOnboardParameters eop = new ExtruderOnboardParameters((OnboardParameters)machineLoader.getDriver());
+		eop.setVisible(true);
 	}
 
 	/**
@@ -1542,7 +1481,7 @@ public class MainWindow extends JFrame implements MRJAboutHandler, MRJQuitHandle
 		if (simulating)
 			return;
 
-		if (machine == null) {
+		if (!machineLoader.isLoaded()) {
 			Base.logger.severe("Not ready to build yet.");
 		} else {
 			// First, stop any leftover actions (for example, from the control panel)
@@ -1558,7 +1497,7 @@ public class MainWindow extends JFrame implements MRJAboutHandler, MRJQuitHandle
 
 			message("Building...");
 			buildStart = new Date();
-			machine.execute();
+			machineLoader.getMachine().buildDirect(new JEditTextAreaSource(textarea));
 		}
 	}
 
@@ -1568,31 +1507,30 @@ public class MainWindow extends JFrame implements MRJAboutHandler, MRJQuitHandle
 		if (simulating)
 			return;
 
-		if (machine == null || machine.driver == null ||
-				!(machine.driver instanceof SDCardCapture)) {
+		if (! (machineLoader.getDriver() instanceof SDCardCapture)) {
 			Base.logger.severe("Not ready to build yet.");
-		} else {
-			BuildNamingDialog bsd = new BuildNamingDialog(this,build.getName());
-			bsd.setVisible(true);
-			String path = bsd.getPath();
-			if (path != null) {
-	
-				// build specific stuff
-				building = true;
-				//buttons.activate(MainButtonPanel.BUILD);
-	
-				setEditorBusy(true);
-	
-				// start our building thread.
-	
-				message("Uploading...");
-				buildStart = new Date();
-				machine.upload(path);
-			}
+			return;
+		}
+		
+		BuildNamingDialog bsd = new BuildNamingDialog(this,build.getName());
+		bsd.setVisible(true);
+		String path = bsd.getPath();
+		if (path != null) {
+
+			// build specific stuff
+			building = true;
+			//buttons.activate(MainButtonPanel.BUILD);
+
+			setEditorBusy(true);
+
+			// start our building thread.
+
+			message("Uploading...");
+			buildStart = new Date();
+			machineLoader.getMachine().upload(new JEditTextAreaSource(textarea), path);
 		}
 	}
 
-	// We can drop this in Java 6, which already has an equivalent
 	private class ExtensionFilter extends FileFilter {
 		private LinkedList<String> extensions = new LinkedList<String>();
 		private String description;
@@ -1625,8 +1563,17 @@ public class MainWindow extends JFrame implements MRJAboutHandler, MRJQuitHandle
 	private String selectOutputFile(String defaultName) {
 		File directory = null;
 		String loadDir = Base.preferences.get("ui.open_output_dir", null);
-		if (loadDir != null) { directory = new File(loadDir); }
-		JFileChooser fc = new JFileChooser(directory);
+		if (loadDir != null) {
+			directory = new File(loadDir);
+		}
+		JFileChooser fc;
+		if (directory != null) {
+			fc = new JFileChooser(directory);
+		}
+		else {
+			fc = new JFileChooser();
+		}
+		
 		fc.setFileFilter(new ExtensionFilter(".s3g","Makerbot build file"));
 		fc.setDialogTitle("Save Makerbot build as...");
 		fc.setDialogType(JFileChooser.SAVE_DIALOG);
@@ -1647,24 +1594,30 @@ public class MainWindow extends JFrame implements MRJAboutHandler, MRJQuitHandle
 			return;
 		if (simulating)
 			return;
-		if (machine == null || machine.driver == null ||
-				!(machine.driver instanceof SDCardCapture)) {
-			Base.logger.severe("Not ready to build yet.");
-		} else {
-			String sourceName = build.getName() + ".s3g";
-			String path = selectOutputFile(sourceName);
-			if (path != null) {
-				// build specific stuff
-				building = true;
-				//buttons.activate(MainButtonPanel.BUILD);
-	
-				setEditorBusy(true);
-	
-				// start our building thread.
-	
-				buildStart = new Date();
-				machine.buildToFile(path);
+		if (!machineLoader.isLoaded()) {
+			String name = Base.preferences.get("machine.name", null);
+			if ( name != null ) {
+				machineLoader.load(name);
 			}
+		}
+		
+		if (!(machineLoader.getDriver() instanceof SDCardCapture)) {
+			Base.logger.severe("Can't build: Machine not loaded, or current machine doesn't support build to file.");
+			return;
+		}
+		
+		String sourceName = build.getName() + ".s3g";
+		String path = selectOutputFile(sourceName);
+		if (path != null) {
+			// build specific stuff
+			building = true;
+			//buttons.activate(MainButtonPanel.BUILD);
+
+			setEditorBusy(true);
+
+			// start our building thread.
+			buildStart = new Date();
+			machineLoader.getMachine().buildToFile(new JEditTextAreaSource(textarea), path);
 		}
 	}
 
@@ -1674,50 +1627,49 @@ public class MainWindow extends JFrame implements MRJAboutHandler, MRJQuitHandle
 		if (simulating)
 			return;
 
-		if (machine == null || machine.driver == null ||
-				!(machine.driver instanceof SDCardCapture)) {
+		if (! (machineLoader.getDriver() instanceof SDCardCapture)) {
 			Base.logger.severe("Not ready to build yet.");
-		} else {
-			SDCardCapture sdcc = (SDCardCapture)machine.driver;
-			List<String> files = sdcc.getFileList();
-			//for (String filename : files) { System.out.println("File "+filename); }
-			BuildSelectionDialog bsd = new BuildSelectionDialog(this,files);
-			bsd.setVisible(true);
-			String path = bsd.getSelectedPath();
-			Base.logger.info("Selected path is "+path);
-			if (path != null)
-			{
-				// build specific stuff
-				building = true;
-				//buttons.activate(MainButtonPanel.BUILD);
+			return;
+		}
+		
+		SDCardCapture sdcc = (SDCardCapture)machineLoader.getDriver();
+		List<String> files = sdcc.getFileList();
+		//for (String filename : files) { System.out.println("File "+filename); }
+		BuildSelectionDialog bsd = new BuildSelectionDialog(this,files);
+		bsd.setVisible(true);
+		String path = bsd.getSelectedPath();
+		Base.logger.info("Selected path is "+path);
+		if (path != null)
+		{
+			// build specific stuff
+			building = true;
+			//buttons.activate(MainButtonPanel.BUILD);
 
-				setEditorBusy(true);
+			setEditorBusy(true);
 
-				// start our building thread.
-
-				message("Building...");
-				buildStart = new Date();
-				machine.buildRemote(path);
-			}
+			// start our building thread.
+			message("Building...");
+			buildStart = new Date();
+			machineLoader.getMachine().buildRemote(path);
 		}
 	}
 	
 	private Date buildStart = null;
 	
 	public void machineStateChanged(MachineStateChangeEvent evt) {
-
+		
 		if (Base.logger.isLoggable(Level.FINE)) {
 			Base.logger.finest("Machine state changed to " + evt.getState().getState());
 		}
 		boolean hasGcode = getBuild().getCode() != null;
 		if (building) {
-			if (evt.getState().isReady() ||
-				evt.getState().getState() == MachineState.State.STOPPING) {
+			if (evt.getState().canPrint()) {
 				final MachineState endState = evt.getState();
         		building = false;
                 SwingUtilities.invokeLater(new Runnable() {
+                	// TODO: Does this work?
                     public void run() {
-                    	if (endState.isReady()) {
+                    	if (endState.canPrint()) {
                     		notifyBuildComplete(buildStart, new Date());
                     	} else {
                     		notifyBuildAborted(buildStart, new Date());
@@ -1730,28 +1682,27 @@ public class MainWindow extends JFrame implements MRJAboutHandler, MRJQuitHandle
 				building = false; // Don't keep the building state when disconnecting from the machine
 			}
 		}
-		if (evt.getState().isReady()) {
+		if (evt.getState().canPrint()) {
+			// TODO: What?
 			reloadSerialMenu();
 		}
-		boolean showParams = 
-				evt.getState().isReady() &&
-				machine != null &&
-				machine.getDriver() instanceof OnboardParameters &&
-				((OnboardParameters)machine.getDriver()).hasFeatureOnboardParameters();
+		boolean showParams = evt.getState().isConfigurable()
+				&& machineLoader.getDriver() instanceof OnboardParameters
+				&& ((OnboardParameters)machineLoader.getDriver()).hasFeatureOnboardParameters();
 
 		if (Base.logger.isLoggable(Level.FINE)) {
 			if (!showParams) {
 				String cause = new String();
-				if (evt.getState().isReady()) {
-					if (machine == null) cause += "[no machine] ";
+				if (evt.getState().isConfigurable()) {
+					if (!machineLoader.isLoaded()) cause += "[no machine] ";
 					else {
-						if (!(machine.getDriver() instanceof OnboardParameters)) {
+						if (!(machineLoader.getDriver() instanceof OnboardParameters)) {
 							cause += "[driver doesn't implement onboard parameters] ";
 						}
-						else if (!machine.getDriver().isInitialized()) {
+						else if (!machineLoader.getDriver().isInitialized()) {
 							cause += "[machine not initialized] ";
 						}
-						else if (!((OnboardParameters)machine.getDriver()).hasFeatureOnboardParameters()) {
+						else if (!((OnboardParameters)machineLoader.getDriver()).hasFeatureOnboardParameters()) {
 							cause += "[firmware doesn't support onboard parameters]";
 						}
 					}
@@ -1760,30 +1711,47 @@ public class MainWindow extends JFrame implements MRJAboutHandler, MRJQuitHandle
 			}
 		}
 		
+		// Enable the machine select and serial select menus only when the machine is not connected
+		for (int itemIndex = 0; itemIndex < serialMenu.getItemCount(); itemIndex++) { 
+			JMenuItem item = serialMenu.getItem(itemIndex);
+			if  (item!= null) {
+				item.setEnabled(!evt.getState().isConnected());
+			}
+		}
+		
+		for (int itemIndex = 0; itemIndex < machineMenu.getItemCount(); itemIndex++) { 
+			JMenuItem item = machineMenu.getItem(itemIndex);
+			if  (item!= null) {
+				item.setEnabled(!evt.getState().isConnected());
+			}
+		}
+		
+//		serialMenu.setEnabled(!evt.getState().isConnected());
+//		machineMenu.setEnabled(!evt.getState().isConnected());
+		
 		// enable the control panel menu item when the machine is ready
-		controlPanelItem.setEnabled(evt.getState().isReady());
+		controlPanelItem.setEnabled(evt.getState().isConfigurable());
+		
 		// enable the build menu item when the machine is ready and there is gcode in the editor
-		buildMenuItem.setEnabled(hasGcode && evt.getState().isReady());
+		buildMenuItem.setEnabled(hasGcode && evt.getState().isConfigurable());
 		onboardParamsItem.setVisible(showParams);
 		extruderParamsItem.setVisible(showParams);
 		boolean showIndexing = 
-			evt.getState().isReady() &&
-			machine != null &&
-			machine.getDriver() instanceof MultiTool &&
-			((MultiTool)machine.getDriver()).toolsCanBeReindexed();
+			evt.getState().isConfigurable() &&
+			machineLoader.getDriver() instanceof MultiTool &&
+			((MultiTool)machineLoader.getDriver()).toolsCanBeReindexed();
 		toolheadIndexingItem.setVisible(showIndexing);
 		
 		boolean showRealtimeTuning = 
-			evt.getState().isReady() &&
-			machine != null &&
-			machine.getDriver() instanceof RealtimeControl &&
-			((RealtimeControl)machine.getDriver()).hasFeatureRealtimeControl();
+			evt.getState().isConnected() &&
+			machineLoader.getDriver() instanceof RealtimeControl &&
+			((RealtimeControl)machineLoader.getDriver()).hasFeatureRealtimeControl();
 		realtimeControlItem.setVisible(showRealtimeTuning);
 		realtimeControlItem.setEnabled(showRealtimeTuning);
 		// Advertise machine name
 		String name = "Not Connected";
-		if (evt.getState().isConnected() && machine != null) {
-			name = machine.getName();
+		if (evt.getState().isConnected() && machineLoader.isLoaded()) {
+			name = machineLoader.getMachine().getMachineName();
 		}
 		if (name != null) {
 			this.setTitle(name + " - " + WINDOW_TITLE);
@@ -1842,7 +1810,7 @@ public class MainWindow extends JFrame implements MRJAboutHandler, MRJQuitHandle
 				+ EstimationDriver.getBuildTimeString(elapsed);
 
 		// Highlight the line at which the user aborted...
-		int atWhichLine = machine.getLinesProcessed();
+		int atWhichLine = machineLoader.getMachine().getLinesProcessed();
 		highlightLine(atWhichLine);
 
 		Base.showMessage("Build aborted (line "+ atWhichLine+")", message);
@@ -1856,9 +1824,9 @@ public class MainWindow extends JFrame implements MRJAboutHandler, MRJQuitHandle
 		textarea.setEnabled(true);
 
 		building = false;
-		if (machine != null) {
-			if (machine.getSimulatorDriver() != null)
-				machine.getSimulatorDriver().destroyWindow();
+		if (machineLoader.isLoaded()) {
+			if (machineLoader.getMachine().getSimulatorDriver() != null)
+				machineLoader.getMachine().getSimulatorDriver().destroyWindow();
 		} else {
 		}
 		setEditorBusy(false);
@@ -1875,7 +1843,7 @@ public class MainWindow extends JFrame implements MRJAboutHandler, MRJQuitHandle
 
 		public void run() {
 			message("Simulating...");
-			machine.simulate();
+			machineLoader.getMachine().simulate(new JEditTextAreaSource(textarea));
 			EventQueue.invokeLater(new Runnable() {
 				public void run() {
 					simulationOver();
@@ -1902,7 +1870,7 @@ public class MainWindow extends JFrame implements MRJAboutHandler, MRJQuitHandle
 
 		public void run() {
 			message("Estimating...");
-			machine.estimate();
+			machineLoader.getMachine().estimate(new JEditTextAreaSource(textarea));
 			editor.estimationOver();
 		}
 	}
@@ -1917,16 +1885,16 @@ public class MainWindow extends JFrame implements MRJAboutHandler, MRJQuitHandle
 	 * Stop the build.
 	 */
 	public void doStop() {
-		if (machine != null) {
-			machine.stop();
+		if (machineLoader.isLoaded()) {
+			machineLoader.getMachine().stopAll();
 		}
 		building = false;
 		simulating = false;
 	}
 
 	public void handleReset() {
-		if (machine != null) {
-			machine.reset();
+		if (machineLoader.isLoaded()) {
+			machineLoader.getMachine().reset();
 		}
 	}
 	
@@ -1941,8 +1909,8 @@ public class MainWindow extends JFrame implements MRJAboutHandler, MRJQuitHandle
 	 * Pause the applet but don't kill its window.
 	 */
 	public void doPause() {
-		if (machine.isPaused()) {
-			machine.unpause();
+		if (machineLoader.getMachine().isPaused()) {
+			machineLoader.getMachine().unpause();
 
 			if (simulating) {
 				//buttons.activate(MainButtonPanel.SIMULATE);
@@ -1954,8 +1922,8 @@ public class MainWindow extends JFrame implements MRJAboutHandler, MRJQuitHandle
 
 			//buttons.inactivate(MainButtonPanel.PAUSE);
 		} else {
-			machine.pause();
-			int atWhichLine = machine.getLinesProcessed();
+			machineLoader.getMachine().pause();
+			int atWhichLine = machineLoader.getMachine().getLinesProcessed();
 			highlightLine(atWhichLine);
 			message("Paused at line "+ atWhichLine +".");
 
@@ -2043,7 +2011,7 @@ public class MainWindow extends JFrame implements MRJAboutHandler, MRJQuitHandle
 	}
 
 	protected boolean confirmBuildAbort() {
-		if (machine != null && machine.getMachineState().getState() == MachineState.State.BUILDING) {
+		if (machineLoader.isLoaded() && machineLoader.getMachine().getMachineState().isBuilding()) {
 			final String message = "<html>You are currently printing from ReplicatorG! Your build will be stopped.<br>" +
 				"Continue and abort print?</html>";
 			int option = JOptionPane.showConfirmDialog(this, message, "Abort print?", 
@@ -2214,6 +2182,22 @@ public class MainWindow extends JFrame implements MRJAboutHandler, MRJQuitHandle
 			JOptionPane.showMessageDialog(this, "The file "+path+" could not be found.", "File not found", JOptionPane.ERROR_MESSAGE);
 			return;
 		}
+		if (path != null) {
+			boolean extensionValid = false;
+			
+			// Note: Duplication of extension list from selectFile()
+			String[] extensions = {".gcode",".ngc",".stl",".obj",".dae"};
+			String lowercasePath = path.toLowerCase();
+			for (String  extension : extensions) {
+				if (lowercasePath.endsWith(extension)) {
+					extensionValid = true;
+				}
+			}
+			
+			if (!extensionValid) {
+				return;
+			}
+		}
 		try {
 			setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
 			// loading may take a few moments for large files
@@ -2222,7 +2206,7 @@ public class MainWindow extends JFrame implements MRJAboutHandler, MRJQuitHandle
 			setCode(build.getCode());
 			setModel(build.getModel());
 			updateBuild();
-			buttons.updateFromMachine(machine);
+			buttons.updateFromMachine(machineLoader.getMachine());
 			if (null != path) {
 				handleOpenPath = path;
 				mruList.update(path);
@@ -2312,10 +2296,7 @@ public class MainWindow extends JFrame implements MRJAboutHandler, MRJQuitHandle
 		}
 
 		// cleanup our machine/driver.
-		if (machine != null) {
-			machine.dispose();
-			machine = null;
-		}
+		machineLoader.unload();
 
 		checkModified(HANDLE_QUIT);
 	}
@@ -2350,23 +2331,6 @@ public class MainWindow extends JFrame implements MRJAboutHandler, MRJQuitHandle
 
 		storePreferences();
 		console.handleQuit();
-	}
-
-	protected void handleReference() {
-		String text = textarea.getSelectedText().trim();
-
-		if (text.length() == 0) {
-			message("First select a word to find in the reference.");
-
-		} else {
-			String referenceFile = PdeKeywords.getReference(text);
-			// System.out.println("reference file is " + referenceFile);
-			if (referenceFile == null) {
-				message("No reference available for \"" + text + "\"");
-			} else {
-				Base.showReference(referenceFile + ".html");
-			}
-		}
 	}
 
 	public void highlightLine(int lnum) {
@@ -2505,17 +2469,6 @@ public class MainWindow extends JFrame implements MRJAboutHandler, MRJQuitHandle
 				}
 			});
 			this.add(item);
-
-			this.addSeparator();
-
-			referenceItem = new JMenuItem("Find in Reference");
-			referenceItem.addActionListener(new ActionListener() {
-				public void actionPerformed(ActionEvent e) {
-					// Base.showReference(referenceFile + ".html");
-					handleReference(); // textarea.getSelectedText());
-				}
-			});
-			this.add(referenceItem);
 		}
 
 		// if no text is selected, disable copy and cut menu items
@@ -2537,83 +2490,47 @@ public class MainWindow extends JFrame implements MRJAboutHandler, MRJQuitHandle
 		}
 	}
 
-	protected void setMachine(MachineController machine) {
-		if (this.machine != machine) {
-			if (this.machine != null) {
-				this.machine.dispose();
-			}
-			this.machine = machine;
-			if (machine != null) {
-				machine.setCodeSource(new JEditTextAreaSource(textarea));
-				machine.setMainWindow(this);
-				machine.addMachineStateListener(this);
-				machine.addMachineStateListener(machineStatusPanel);
-				machine.addMachineStateListener(buttons);
-			}
-		}
-		if (machine == null) {
-			// Buttons will need an explicit null state notification
-			buttons.machineStateChanged(new MachineStateChangeEvent(null, new MachineState()));
-		}
-		machineStatusPanel.setMachine(this.machine);
-		// TODO: PreviewPanel: update with new machine
-	}
 	
-	public MachineController getMachine(){
-		return this.machine;
+	public MachineInterface getMachine(){
+		return this.machineLoader.getMachine();
 	}
 
 	/**
-	 * 
 	 * @param name       name of the machine
-	 * @param connect	 auto-connect on load. Usually true, but can be set to false to avoid talking on the serial port
+	 * @param doConnect  perform the connect
 	 */
-	public void loadMachine(String name, Boolean connect) {
-		setMachine(Base.loadMachine(name));
-		if (getMachine() == null) return; // abort on no selected machine
-		reloadSerialMenu();
+	public void loadMachine(String name, boolean doConnect) {
+		// Here we want to:
+		// 1. Create a new machine using the given profile name
+		// 2. If the new machine uses a serial port, connect to the serial port
+		// 3. If this is a new machine, record a reference to it
+		// 4. Hook the machine to the main window.
+		
+		machineLoader.load(name);
+		// TODO: Check if the machine failed to load, and bail here if necessary?
+		
+		String targetPort;
+	
+		targetPort = Base.preferences.get("serial.last_selected", null);
+		
+		if (targetPort == null) {
+			Base.logger.severe("Couldn't find a port to use!");
+			return;
+		}
+		
+		if (doConnect) {
+			machineLoader.connect(targetPort);
+		}
+				
+		if (!machineLoader.isLoaded()) {
+			// Buttons will need an explicit null state notification
+			buttons.machineStateChanged(new MachineStateChangeEvent(null, new MachineState(MachineState.State.NOT_ATTACHED)));
+		}
 		
 		if(previewPanel != null)
 		{
-			/* FIXME: This is probably not the best place to do the reload. We need
-			 * the BuildVolume information (through MachineModel) which apparently
-			 * isn't initialized yet when this is called...
-			 */
-			Base.logger.fine("RELOADING the machine... removing previewPanel...");
 			getPreviewPanel().rebuildScene();
 			updateBuild();
-		}
-		
-		if (!connect) return;
-
-		if (machine.driver instanceof UsesSerial) {
-			UsesSerial us = (UsesSerial)machine.driver;
-			String targetPort;
-			
-			if (Base.preferences.getBoolean("serial.use_machines",true) &&
-					us.isExplicit()) {
-				targetPort = us.getPortName();
-			} else {
-				targetPort = Base.preferences.get("serial.last_selected", null);
-			}
-			if (targetPort != null) {
-				try {
-					synchronized(us) {
-						Serial current = us.getSerial();
-						System.err.println("Current serial port: "+((current==null)?"null":current.getName())+", specified "+targetPort);
-						if (current == null || !current.getName().equals(targetPort)) {
-							us.setSerial(new Serial(targetPort,us));
-						}
-						machine.connect();
-					}
-				} catch (SerialException e) {
-					String msg = e.getMessage();
-					if (msg == null) { msg = "."; }
-					else { msg = ": "+msg; }
-					Base.logger.log(Level.WARNING,
-							"Could not use specified serial port ("+targetPort+")"+ msg);
-				}
-			}
 		}
 	}
 
@@ -2656,7 +2573,7 @@ public class MainWindow extends JFrame implements MRJAboutHandler, MRJQuitHandle
 			if (build.getCode() != null) {
 				setCode(build.getCode());
 			}
-			buttons.updateFromMachine(machine);
+			buttons.updateFromMachine(machineLoader.getMachine());
 			updateBuild();
 		}
 	}

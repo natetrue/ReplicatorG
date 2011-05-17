@@ -81,6 +81,10 @@ public class SimpleRepRap5DDriver extends SerialDriver {
 		df = new DecimalFormat("#.######");
 	}
 
+	public String getDriverName() {
+		return "SimpleRepRap5D";
+	}
+
 	public void loadXML(Node xml) {
 		super.loadXML(xml);
 	}
@@ -128,16 +132,19 @@ public class SimpleRepRap5DDriver extends SerialDriver {
 		sendCommand("G90");
 	}
 
+	public boolean isPassthroughDriver() {
+		return true;
+	}
+	
 	/**
 	 * Actually execute the GCode we just parsed.
 	 */
-	public void execute() {
+	public void executeGCodeLine(String code) {
 		// we *DONT* want to use the parents one,
 		// as that will call all sorts of misc functions.
 		// we'll simply pass it along.
 		// super.execute();
-
-		sendCommand(getParser().getCommand());
+		sendCommand(code);
 	}
 
 	/**
