@@ -224,6 +224,8 @@ public class RepRap5DDriver extends SerialDriver implements SerialFifoEventListe
 		// wait till we're initialised
 		if (!isInitialized()) {
 			Base.logger.info("Initializing Serial.");
+            serial.clear();
+            serial.setTimeout(1000);
 
 			if (pulseRTS)
 			{
@@ -410,6 +412,7 @@ public class RepRap5DDriver extends SerialDriver implements SerialFifoEventListe
 			// skip empty commands.
 			if (next.length() == 0)
 			{
+                sendCommandLock.unlock();
 				return;
 			}
 	
@@ -842,6 +845,7 @@ public class RepRap5DDriver extends SerialDriver implements SerialFifoEventListe
 
 	public void disableDrives() throws RetryException {
 		sendCommand("M18");
+        sendCommand("M84");
 
 		super.disableDrives();
 	}
@@ -970,6 +974,12 @@ public class RepRap5DDriver extends SerialDriver implements SerialFifoEventListe
 	public double getPlatformTemperature(){
 		return machine.currentTool().getPlatformCurrentTemperature();
 	}
+    
+    public void setPlatformTemperature(double temperature) throws RetryException {
+        sendCommand(_getToolCode() + "M140 S" + df.format(temperature));
+        
+        super.setPlatformTemperature(temperature);
+    }
 	/***************************************************************************
 	 * Flood Coolant interface functions
 	 **************************************************************************/
@@ -1059,7 +1069,7 @@ public class RepRap5DDriver extends SerialDriver implements SerialFifoEventListe
 
 	public synchronized void stop() {
 		// No implementation needed for synchronous machines.
-		//sendCommand("M0");
+		sendCommand("M112");
 		// M0 is the same as emergency stop: will hang all communications. You don't really want that...
 		Base.logger.info("RepRap/Ultimaker Machine stop called.");
 	}
