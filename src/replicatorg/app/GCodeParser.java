@@ -493,7 +493,7 @@ public class GCodeParser {
 			}
 				break;
 		// disable drives
-		case M18:
+        case M18: case M84:
 			{ //these braces provide a new level of scope to avoid name clash on axes
 				EnumSet<AxisId> axes = getAxes(gcode);
 				if (axes.isEmpty()) {
