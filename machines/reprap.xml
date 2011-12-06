@@ -162,8 +162,6 @@ M108 S0
                 <warmup>
                 </warmup>
                 <cooldown>
-(Turn off steppers after a build.)
-M108 S0
                 </cooldown>
         </machine>
 </machines>
