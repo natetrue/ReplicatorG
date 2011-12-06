@@ -25,7 +25,6 @@ package replicatorg.drivers;
 
 import java.awt.geom.Rectangle2D;
 
-import replicatorg.app.exceptions.GCodeException;
 import replicatorg.app.ui.SimulationWindow;
 import replicatorg.app.ui.SimulationWindow2D;
 import replicatorg.util.Point5d;
@@ -50,7 +49,6 @@ public class SimulationDriver extends DriverBaseImplementation {
 	public void createWindow() {
 		simulation = new SimulationWindow2D();
 		simulation.setVisible(true);
-		simulation.setAlwaysOnTop(true);
 	}
 
 	public void destroyWindow() {
@@ -66,14 +64,6 @@ public class SimulationDriver extends DriverBaseImplementation {
 		super.dispose();
 	}
 
-	public void execute() throws InterruptedException, RetryException {
-		// suppress any errors
-		try {
-			super.execute();
-		} catch (GCodeException e) {
-		}
-	}
-
 	public void queuePoint(Point5d p) throws RetryException {
 		simulation.queuePoint(p);
 
@@ -85,7 +75,7 @@ public class SimulationDriver extends DriverBaseImplementation {
 	}
 
 	public void homeXY() throws RetryException {
-		Point5d pos = getCurrentPosition();
+		Point5d pos = getCurrentPosition(false);
 		pos.setX(0);
 		pos.setY(0);
 
@@ -93,21 +83,21 @@ public class SimulationDriver extends DriverBaseImplementation {
 	}
 
 	public void homeX() throws RetryException {
-		Point5d pos = getCurrentPosition();
+		Point5d pos = getCurrentPosition(false);
 		pos.setX(0);
 
 		queuePoint(pos);
 	}
 
 	public void homeY() throws RetryException {
-		Point5d pos = getCurrentPosition();
+		Point5d pos = getCurrentPosition(false);
 		pos.setY(0);
 
 		queuePoint(pos);
 	}
 
 	public void homeZ() throws RetryException {
-		Point5d pos = getCurrentPosition();
+		Point5d pos = getCurrentPosition(false);
 		pos.setZ(0);
 
 		queuePoint(pos);

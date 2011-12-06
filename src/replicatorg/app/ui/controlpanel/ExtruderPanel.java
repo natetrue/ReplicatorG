@@ -11,7 +11,10 @@ import java.awt.event.FocusListener;
 import java.awt.event.ItemEvent;
 import java.awt.event.ItemListener;
 import java.awt.image.BufferedImage;
+import java.text.NumberFormat;
+import java.text.ParseException;
 import java.util.Date;
+import java.util.logging.Level;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -49,14 +52,15 @@ import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
 
 import replicatorg.app.Base;
-import replicatorg.app.MachineController;
-import replicatorg.drivers.Driver;
 import replicatorg.drivers.RetryException;
+import replicatorg.drivers.commands.DriverCommand.AxialDirection;
+import replicatorg.machine.MachineInterface;
 import replicatorg.machine.model.ToolModel;
+import replicatorg.app.ui.CallbackTextField;
 
 public class ExtruderPanel extends JPanel implements FocusListener, ActionListener, ItemListener {
 	private ToolModel toolModel;
-	private MachineController machine;
+	private MachineInterface machine;
 
 	public ToolModel getTool() { return toolModel; }
 	
@@ -87,7 +91,7 @@ public class ExtruderPanel extends JPanel implements FocusListener, ActionListen
 	protected long extrudeTime;
 	private final String EXTRUDE_TIME_PREF_NAME = "extruderpanel.extrudetime";
 	
-	protected Driver driver;
+//	protected Driver driver;
 	
 	
 	/**
@@ -165,7 +169,7 @@ public class ExtruderPanel extends JPanel implements FocusListener, ActionListen
 		} else {
 			// If we were in continuous jog mode, send a stop to be safe
 			if (continuousJogMode) {
-				this.driver.stop(false);			
+				this.machine.stopMotion();			
 			}
 			continuousJogMode = false;
 			Matcher jogMatcher = extrudeTimePattern.matcher(mode);
@@ -177,13 +181,13 @@ public class ExtruderPanel extends JPanel implements FocusListener, ActionListen
 		}		
 	}
 	
-	public ExtruderPanel(MachineController machine, ToolModel t) {
+	public ExtruderPanel(MachineInterface machine, ToolModel t) {
 		this.machine = machine;
 		this.toolModel = t;
 		
 		int textBoxWidth = 75;
 		Dimension panelSize = new Dimension(420, 30);
-		driver = machine.getDriver();
+//		driver = machine2.getDriver();
 
 		extrudeTimePattern = Pattern.compile("([.0-9]+)");
 		
@@ -193,21 +197,12 @@ public class ExtruderPanel extends JPanel implements FocusListener, ActionListen
 		if (t.hasMotor()) {
 			// Due to current implementation issues, we need to send the PWM
 			// before the RPM for a stepper motor. Thus we display both controls in these
-			// cases. This shouldn't be necessary for a Gen4 stepper extruder.
-			if (t.getMotorStepperAxis() == null) {
+			// cases. This shouldn't be necessary for a Gen4 stepper extruder. (it's not!)
+			if ((t.getMotorStepperAxis() == null) && !(t.motorHasEncoder() || t.motorIsStepper())) {
 				// our motor speed vars
 				JLabel label = makeLabel("Motor Speed (PWM)");
-				JTextField field = new JTextField();
-
-				field.setMaximumSize(new Dimension(textBoxWidth, 25));
-				field.setMinimumSize(new Dimension(textBoxWidth, 25));
-				field.setPreferredSize(new Dimension(textBoxWidth, 25));
-				field.setName("motor-speed-pwm");
-				field.addFocusListener(this);
-				field.setActionCommand("handleTextfield");
-				field.setText(Integer.toString(driver.getMotorSpeedPWM()));
-				field.addActionListener(this);
-
+				JTextField field = new CallbackTextField(this, "handleTextField", "motor-speed-pwm", 9);
+				field.setText(Integer.toString(machine.getDriverQueryInterface().getMotorSpeedPWM()));
 				add(label);
 				add(field,"wrap");
 			}
@@ -215,17 +210,8 @@ public class ExtruderPanel extends JPanel implements FocusListener, ActionListen
 			if (t.motorHasEncoder() || t.motorIsStepper()) {
 				// our motor speed vars
 				JLabel label = makeLabel("Motor Speed (RPM)");
-				JTextField field = new JTextField();
-
-				field.setMaximumSize(new Dimension(textBoxWidth, 25));
-				field.setMinimumSize(new Dimension(textBoxWidth, 25));
-				field.setPreferredSize(new Dimension(textBoxWidth, 25));
-				field.setName("motor-speed");
-				field.addFocusListener(this);
-				field.setActionCommand("handleTextfield");
-				field.setText(Double.toString(driver.getMotorRPM()));
-				field.addActionListener(this);
-
+				JTextField field = new CallbackTextField(this, "handleTextField", "motor-speed", 9);
+				field.setText(Double.toString(machine.getDriverQueryInterface().getMotorRPM()));
 				add(label);
 				add(field,"wrap");
 
@@ -301,22 +287,12 @@ public class ExtruderPanel extends JPanel implements FocusListener, ActionListen
 		// our temperature fields
 		if (t.hasHeater()) {
 			JLabel targetTempLabel = makeKeyLabel("Target Temperature (C)",targetColor);
-			JTextField targetTempField = new JTextField();
-			targetTempField.setMaximumSize(new Dimension(textBoxWidth, 25));
-			targetTempField.setMinimumSize(new Dimension(textBoxWidth, 25));
-			targetTempField.setPreferredSize(new Dimension(textBoxWidth, 25));
-			targetTempField.setName("target-temp");
-			targetTempField.addFocusListener(this);
-			targetTemperature = driver.getTemperatureSetting();
+			JTextField targetTempField = new CallbackTextField(this, "handleTextField", "target-temp", 9);
+			targetTemperature = machine.getDriverQueryInterface().getTemperatureSetting();
 			targetTempField.setText(Double.toString(targetTemperature));
-			targetTempField.setActionCommand("handleTextfield");
-			targetTempField.addActionListener(this);
 
 			JLabel currentTempLabel = makeKeyLabel("Current Temperature (C)",measuredColor);
-			currentTempField = new JTextField();
-			currentTempField.setMaximumSize(new Dimension(textBoxWidth, 25));
-			currentTempField.setMinimumSize(new Dimension(textBoxWidth, 25));
-			currentTempField.setPreferredSize(new Dimension(textBoxWidth, 25));
+			currentTempField = new JTextField("",9);
 			currentTempField.setEnabled(false);
 
 			add(targetTempLabel);
@@ -328,24 +304,12 @@ public class ExtruderPanel extends JPanel implements FocusListener, ActionListen
 		// our heated platform fields
 		if (t.hasHeatedPlatform()) {
 			JLabel targetTempLabel = makeKeyLabel("Platform Target Temp (C)",targetPlatformColor);
-			JTextField targetTempField = new JTextField();
-			targetTempField.setMaximumSize(new Dimension(textBoxWidth, 25));
-			targetTempField.setMinimumSize(new Dimension(textBoxWidth, 25));
-			targetTempField.setPreferredSize(new Dimension(textBoxWidth, 25));
-			targetTempField.setName("platform-target-temp");
-			targetTempField.addFocusListener(this);
-			double temperature = driver.getPlatformTemperatureSetting();
-			targetPlatformTemperature = temperature;
-			targetTempField.setText(Double.toString(temperature));
-			targetTempField.setActionCommand("handleTextfield");
-			targetTempField.addActionListener(this);
+			JTextField targetTempField = new CallbackTextField(this, "handleTextField", "platform-target-temp", 9);
+			targetPlatformTemperature = machine.getDriverQueryInterface().getPlatformTemperatureSetting();
+			targetTempField.setText(Double.toString(targetPlatformTemperature));
 
 			JLabel currentTempLabel = makeKeyLabel("Platform Current Temp (C)",measuredPlatformColor);
-
-			platformCurrentTempField = new JTextField();
-			platformCurrentTempField.setMaximumSize(new Dimension(textBoxWidth, 25));
-			platformCurrentTempField.setMinimumSize(new Dimension(textBoxWidth, 25));
-			platformCurrentTempField.setPreferredSize(new Dimension(textBoxWidth, 25));
+			platformCurrentTempField = new JTextField("",9);
 			platformCurrentTempField.setEnabled(false);
 
 			add(targetTempLabel);
@@ -476,14 +440,13 @@ public class ExtruderPanel extends JPanel implements FocusListener, ActionListen
 	public void updateStatus() {
 		
 		Second second = new Second(new Date(System.currentTimeMillis() - startMillis));
-		int toolStatus = machine.getDriver().getToolStatus();
 		
 		if (machine.getModel().currentTool() == toolModel && toolModel.hasHeater()) {
-			double temperature = machine.getDriver().getTemperature();
+			double temperature = machine.getDriverQueryInterface().getTemperature();
 			updateTemperature(second, temperature);
 		}
 		if (machine.getModel().currentTool() == toolModel && toolModel.hasHeatedPlatform()) {
-			double temperature = machine.getDriver().getPlatformTemperature();
+			double temperature = machine.getDriverQueryInterface().getPlatformTemperature();
 			updatePlatformTemperature(second, temperature);
 		}
 	}
@@ -522,6 +485,7 @@ public class ExtruderPanel extends JPanel implements FocusListener, ActionListen
 	// to set a potentially dangerous limit would suck.
 	// @return Double.MIN_VALUE if cancelled; the target temperature otherwise.
 	//
+	// NOTE: copy of this in preferences window
 	private double confirmTemperature(double target, String limitPrefName, double defaultLimit) {
 		double limit = Base.preferences.getDouble("temperature.acceptedLimit", defaultLimit);
 		if (target > limit){
@@ -549,31 +513,39 @@ public class ExtruderPanel extends JPanel implements FocusListener, ActionListen
 	public void handleChangedTextField(JTextField source) throws RetryException
 	{
 		String name = source.getName();
-		Driver driver = machine.getDriver();
 		if (source.getText().length() > 0) {
+			double target;
+			try {
+				NumberFormat nf = Base.getLocalFormat();
+				target = nf.parse(source.getText()).doubleValue();
+			} catch (ParseException pe) {
+				Base.logger.log(Level.WARNING,"Could not parse value!",pe);
+				JOptionPane.showMessageDialog(this, "Error parsing value: "+pe.getMessage()+"\nPlease try again.", "Could not parse value", JOptionPane.ERROR_MESSAGE);
+				return;
+			}
 			if (name.equals("target-temp") || name.equals("platform-target-temp")) {
-				double target = Double.parseDouble(source.getText());
+				
 				if(name.equals("target-temp")) {
 					target = confirmTemperature(target,"temperature.acceptedLimit",260.0);
 					if (target == Double.MIN_VALUE) {
 						return;
 					}
-					driver.setTemperature(target);
+					machine.runCommand(new replicatorg.drivers.commands.SetTemperature(target));
 					targetTemperature = target;
 				} else {
 					target = confirmTemperature(target,"temperature.acceptedLimit.bed",130.0);
 					if (target == Double.MIN_VALUE) {
 						return;
 					}
-					driver.setPlatformTemperature(target);
+					machine.runCommand(new replicatorg.drivers.commands.SetPlatformTemperature(target));
 					targetPlatformTemperature = target;
 				}
-				// This gives some feedback by adding .0 it it wasn't typed.
+				// This gives some feedback by adding .0 if it wasn't typed.
 				source.setText(Double.toString(target));
 			} else if (name.equals("motor-speed")) {
-				driver.setMotorRPM(Double.parseDouble(source.getText()));
+				machine.runCommand(new replicatorg.drivers.commands.SetMotorSpeedRPM(target));
 			} else if (name.equals("motor-speed-pwm")) {
-				driver.setMotorSpeedPWM((int)Double.parseDouble(source.getText()));
+				machine.runCommand(new replicatorg.drivers.commands.SetMotorSpeedPWM((int)target));
 			} else {
 				Base.logger.warning("Unhandled text field: "+name);
 			}
@@ -584,101 +556,116 @@ public class ExtruderPanel extends JPanel implements FocusListener, ActionListen
 	public void itemStateChanged(ItemEvent e) {
 		Component source = (Component) e.getItemSelectable();
 		String name = source.getName();
-		Driver driver = machine.getDriver();
-		
-		try {
-			if (e.getStateChange() == ItemEvent.SELECTED) {
-				/* Handle DC extruder commands */
-				if (name.equals("motor-forward")) {
-					driver.setMotorDirection(ToolModel.MOTOR_CLOCKWISE);
-					driver.enableMotor();
-				} else if (name.equals("motor-reverse")) {
-					driver.setMotorDirection(ToolModel.MOTOR_COUNTER_CLOCKWISE);
-					driver.enableMotor();
-				} else if (name.equals("motor-stop")) {
-					driver.disableMotor();
+		if (e.getStateChange() == ItemEvent.SELECTED) {
+			/* Handle DC extruder commands */
+			if (name.equals("motor-forward")) {
+				machine.runCommand(new replicatorg.drivers.commands.SetMotorDirection(AxialDirection.CLOCKWISE));
+				// TODO: Hack to support RepRap/Ultimaker- always re-send RPM
+				if (toolModel.motorHasEncoder() || toolModel.motorIsStepper()) {
+					machine.runCommand(new replicatorg.drivers.commands.SetMotorSpeedRPM(machine.getDriver().getMotorRPM()));
 				}
-				else if (name.equals("spindle-enabled"))
-					driver.enableSpindle();
-				else if (name.equals("flood-coolant"))
-					driver.enableFloodCoolant();
-				else if (name.equals("mist-coolant"))
-					driver.enableMistCoolant();
-				else if (name.equals("fan-check"))
-					driver.enableFan();
-				else if (name.equals("abp-check"))
-					driver.enableFan();
-				else if (name.equals("valve-check"))
-					driver.openValve();
-				else if (name.equals("collet-check"))
-					driver.openCollet();
-				else
-					Base.logger.warning("checkbox selected: " + source.getName());
-			} else {
-				if (name.equals("motor-enabled"))
-					driver.disableMotor();
-				else if (name.equals("spindle-enabled"))
-					driver.disableSpindle();
-				else if (name.equals("flood-coolant"))
-					driver.disableFloodCoolant();
-				else if (name.equals("mist-coolant"))
-					driver.disableMistCoolant();
-				else if (name.equals("fan-check"))
-					driver.disableFan();
-				else if (name.equals("abp-check"))
-					driver.disableFan();
-				else if (name.equals("valve-check"))
-					driver.closeValve();
-				else if (name.equals("collet-check"))
-					driver.closeCollet();
+				machine.runCommand(new replicatorg.drivers.commands.EnableMotor());
+			} else if (name.equals("motor-reverse")) {
+				machine.runCommand(new replicatorg.drivers.commands.SetMotorDirection(AxialDirection.COUNTERCLOCKWISE));
+				// TODO: Hack to support RepRap/Ultimaker- always re-send RPM
+				if (toolModel.motorHasEncoder() || toolModel.motorIsStepper()) {
+					machine.runCommand(new replicatorg.drivers.commands.SetMotorSpeedRPM(machine.getDriver().getMotorRPM()));
+				}
+				machine.runCommand(new replicatorg.drivers.commands.EnableMotor());
+			} else if (name.equals("motor-stop")) {
+				machine.runCommand(new replicatorg.drivers.commands.DisableMotor());
 			}
-		} catch (RetryException r) {
-			Base.logger.severe("Could not execute command; machine busy.");			
+			else if (name.equals("spindle-enabled"))
+				machine.runCommand(new replicatorg.drivers.commands.EnableSpindle());
+			else if (name.equals("flood-coolant"))
+				machine.runCommand(new replicatorg.drivers.commands.EnableFloodCoolant());
+			else if (name.equals("mist-coolant"))
+				machine.runCommand(new replicatorg.drivers.commands.EnableMistCoolant());
+			else if (name.equals("fan-check"))
+				machine.runCommand(new replicatorg.drivers.commands.EnableFan());
+			else if (name.equals("abp-check")) {
+				// TODO: Debugging. Run both!
+				machine.runCommand(new replicatorg.drivers.commands.ToggleAutomatedBuildPlatform(true));
+				machine.runCommand(new replicatorg.drivers.commands.EnableFan());
+			}
+			else if (name.equals("valve-check"))
+				machine.runCommand(new replicatorg.drivers.commands.OpenValve());
+			else if (name.equals("collet-check"))
+				machine.runCommand(new replicatorg.drivers.commands.OpenCollet());
+			else
+				Base.logger.warning("checkbox selected: " + source.getName());
+		} else {
+			if (name.equals("motor-enabled"))
+				machine.runCommand(new replicatorg.drivers.commands.DisableMotor());
+			else if (name.equals("spindle-enabled"))
+				machine.runCommand(new replicatorg.drivers.commands.DisableSpindle());
+			else if (name.equals("flood-coolant"))
+				machine.runCommand(new replicatorg.drivers.commands.DisableFloodCoolant());
+			else if (name.equals("mist-coolant"))
+				machine.runCommand(new replicatorg.drivers.commands.DisableMistCoolant());
+			else if (name.equals("fan-check"))
+				machine.runCommand(new replicatorg.drivers.commands.DisableFan());
+			else if (name.equals("abp-check")) {
+				// TODO: Debugging. Run both!
+				machine.runCommand(new replicatorg.drivers.commands.ToggleAutomatedBuildPlatform(false));
+				machine.runCommand(new replicatorg.drivers.commands.DisableFan());
+			}
+			else if (name.equals("valve-check"))
+				machine.runCommand(new replicatorg.drivers.commands.CloseValve());
+			else if (name.equals("collet-check"))
+				machine.runCommand(new replicatorg.drivers.commands.CloseCollet());
 		}
 	}
-
+	
 	public void actionPerformed(ActionEvent e) {
 		String s = e.getActionCommand();
 		
-		try {
-			if(s.equals("handleTextfield"))
-			{
-				JTextField source = (JTextField) e.getSource();
-				try {
-					handleChangedTextField(source);
-				} catch (RetryException e1) {
-					Base.logger.severe("Could not execute command; machine busy.");
-				}
-				source.selectAll();
+		if(s.equals("handleTextField"))
+		{
+			JTextField source = (JTextField) e.getSource();
+			try {
+				handleChangedTextField(source);
+			} catch (RetryException e1) {
+				Base.logger.severe("Could not execute command; machine busy.");
 			}
-			else if (s.equals("Extrude-duration")) {
-				JComboBox cb = (JComboBox) e.getSource();
-				String timeText = (String) cb.getSelectedItem();
-				setExtrudeTime(timeText);
-			}
-			/* Handle stepper extruder commands */
-			if (s.equals("forward")) {
-				driver.setMotorDirection(ToolModel.MOTOR_CLOCKWISE);
+			source.selectAll();
+		}
+		else if (s.equals("Extrude-duration")) {
+			JComboBox cb = (JComboBox) e.getSource();
+			String timeText = (String) cb.getSelectedItem();
+			setExtrudeTime(timeText);
+		}
+		/* Handle stepper extruder commands */
+		if (s.equals("forward")) {
 			if (this.toolModel.getMotorStepperAxis() != null) {
-					driver.enableMotor();
-					driver.delay(extrudeTime*1000);
-					driver.disableMotor();
-				}
-			} else if (s.equals("reverse")) {
-				driver.setMotorDirection(ToolModel.MOTOR_COUNTER_CLOCKWISE);
-				if (this.toolModel.getMotorStepperAxis() != null) {
-					driver.enableMotor();
-					driver.delay(extrudeTime*1000);
-					driver.disableMotor();
-				}
-			} else if (s.equals("stop")) {
-				driver.disableMotor();
-				if (this.toolModel.getMotorStepperAxis() != null) {
-					driver.stop(false);
+				machine.runCommand(new replicatorg.drivers.commands.SetMotorDirection(AxialDirection.CLOCKWISE));
+				// Reverted to one single command for RepRap5D driver
+				if (machine.getDriver().getDriverName().equals("RepRap5D")) {
+					machine.runCommand(new replicatorg.drivers.commands.EnableMotor(extrudeTime*1000));
+				} else {
+					machine.runCommand(new replicatorg.drivers.commands.EnableMotor());
+					machine.runCommand(new replicatorg.drivers.commands.Delay(extrudeTime*1000));
+					machine.runCommand(new replicatorg.drivers.commands.DisableMotor());
 				}
 			}
-		} catch (RetryException e1) {
-			Base.logger.severe("Could not execute command; machine busy.");
+		} else if (s.equals("reverse")) {
+			if (this.toolModel.getMotorStepperAxis() != null) {
+				machine.runCommand(new replicatorg.drivers.commands.SetMotorDirection(AxialDirection.COUNTERCLOCKWISE));
+				// Reverted to one single command for RepRap5D driver
+				if (machine.getDriver().getDriverName().equals("RepRap5D")) {
+					machine.runCommand(new replicatorg.drivers.commands.EnableMotor(extrudeTime*1000));
+				} else {
+					machine.runCommand(new replicatorg.drivers.commands.EnableMotor());
+					machine.runCommand(new replicatorg.drivers.commands.Delay(extrudeTime*1000));
+					machine.runCommand(new replicatorg.drivers.commands.DisableMotor());
+				}
+			}
+		} else if (s.equals("stop")) {
+			machine.runCommand(new replicatorg.drivers.commands.DisableMotor());
+			
+			if (this.toolModel.getMotorStepperAxis() != null) {
+				machine.stopMotion();
+			}
 		}
 	}
 

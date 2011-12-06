@@ -45,8 +45,9 @@ import javax.swing.event.ChangeListener;
 
 import net.miginfocom.swing.MigLayout;
 import replicatorg.app.Base;
-import replicatorg.app.MachineController;
 import replicatorg.drivers.SDCardCapture;
+import replicatorg.machine.Machine;
+import replicatorg.machine.MachineInterface;
 import replicatorg.machine.MachineListener;
 import replicatorg.machine.MachineProgressEvent;
 import replicatorg.machine.MachineState;
@@ -58,17 +59,9 @@ import replicatorg.machine.MachineToolStatusEvent;
  */
 public class MainButtonPanel extends BGPanel implements MachineListener, ActionListener {
 
-	// / height, width of the toolbar buttons
-	static final int BUTTON_WIDTH = 27;
-	static final int BUTTON_HEIGHT = 32;
-	
-	static final float disabledFactors[] = { 1.0f, 1.0f, 1.0f, 0.5f };
-	static final float disabledOffsets[] = { 0.0f, 0.0f, 0.0f, 0.0f };
-	static private RescaleOp disabledOp = new RescaleOp(disabledFactors,disabledOffsets,null);
-	static final float activeFactors[] = { -1.0f, -1.0f, -1.0f, 1.0f };
-	static final float activeOffsets[] = { 1.0f, 1.0f, 1.0f, 0.0f };
-	static private RescaleOp activeOp = new RescaleOp(activeFactors,activeOffsets,null);
-
+	/**
+	 * This button is a special button type for the top bar. 
+	 */
 	class MainButton extends JButton implements ChangeListener {
 		private String rolloverText; 
 		public MainButton(String rolloverText,
@@ -125,6 +118,20 @@ public class MainButtonPanel extends BGPanel implements MachineListener, ActionL
 		}
 	}
 	
+	
+	// / height, width of the toolbar buttons
+	static final int BUTTON_WIDTH = 27;
+	static final int BUTTON_HEIGHT = 32;
+	
+	static final float disabledFactors[] = { 1.0f, 1.0f, 1.0f, 0.5f };
+	static final float disabledOffsets[] = { 0.0f, 0.0f, 0.0f, 0.0f };
+	static private RescaleOp disabledOp = new RescaleOp(disabledFactors,disabledOffsets,null);
+	static final float activeFactors[] = { -1.0f, -1.0f, -1.0f, 1.0f };
+	static final float activeOffsets[] = { 1.0f, 1.0f, 1.0f, 0.0f };
+	static private RescaleOp activeOp = new RescaleOp(activeFactors,activeOffsets,null);
+
+
+	
 
 	// / amount of space between groups of buttons on the toolbar
 	static final int BUTTON_GAP = 15;
@@ -143,12 +150,12 @@ public class MainButtonPanel extends BGPanel implements MachineListener, ActionL
 	final static Color BACK_COLOR = new Color(0x5F, 0x73, 0x25); 
 	MainButton simButton, pauseButton, stopButton;
 	MainButton buildButton, resetButton, cpButton, rcButton;
-	MainButton disconnectButton, connectButton;
+	MainButton disconnectButton, connectButton, generateButton;
 	
 	MainButton uploadButton, playbackButton, fileButton;
 	
 	public MainButtonPanel(MainWindow editor) {
-		setLayout(new MigLayout("gap 5"));
+		setLayout(new MigLayout("gap 5, ins 5"));
 		this.editor = editor;
 
 		// hardcoding new blue color scheme for consistency with images,
@@ -160,16 +167,15 @@ public class MainButtonPanel extends BGPanel implements MachineListener, ActionL
 		Color statusColor = Base.getColorPref("buttons.status.color","#FFFFFF");
 
 
-		simButton = makeButton("Simulate", "images/button-simulate.png");
-		add(simButton);
 		buildButton = makeButton("Build", "images/button-build.png");
 		add(buildButton);
-		uploadButton = makeButton("Upload to SD card", "images/button-upload.png");
-		add(uploadButton);
+
 		playbackButton = makeButton("Build from SD card", "images/button-playback.png");
 		add(playbackButton);
 		fileButton = makeButton("Build to file", "images/button-to-file.png");
 		add(fileButton);
+		generateButton = makeButton("Model to GCode", "images/button-to-gcode.png");
+		add(generateButton);
 
 		pauseButton = makeButton("Pause", "images/button-pause.png");
 		add(pauseButton,"gap unrelated");
@@ -180,7 +186,7 @@ public class MainButtonPanel extends BGPanel implements MachineListener, ActionL
 		cpButton = makeButton("Control panel", "images/button-control-panel.png");
 		rcButton = makeButton("Live tuning", "images/button-realtime-panel.png");
 		add(cpButton,"gap unrelated");
-		add(rcButton);
+		add(rcButton, "hidemode 1");
 		
 		resetButton = makeButton("Reset machine", "images/button-reset.png");
 		add(resetButton,"gap unrelated");
@@ -192,22 +198,22 @@ public class MainButtonPanel extends BGPanel implements MachineListener, ActionL
 		statusLabel = new JLabel();
 		statusLabel.setFont(statusFont);
 		statusLabel.setForeground(statusColor);
-		add(statusLabel, "gap unrelated,growx");
+		add(statusLabel, "gap unrelated");
 
-		simButton.setToolTipText("This will open a window showing a rapid simulation of what toolpaths the machine is going to perform.");
+		generateButton.setToolTipText("This will generate gcode for the currently open model.");
 		buildButton.setToolTipText("This will start building the object on the machine.");
 		pauseButton.setToolTipText("This will pause or resume the build.");
 		stopButton.setToolTipText("This will abort the build in progress.");
-		cpButton.setToolTipText("Here you'll find manually controls for the machine.");
+		cpButton.setToolTipText("Here you'll find manual controls for the machine.");
 		rcButton.setToolTipText("This can be used to tune the process, in real time, during a print job.");
 		resetButton.setToolTipText("This will restart the firmware on the machine.");
 		connectButton.setToolTipText("Connect to the machine.");
 		disconnectButton.setToolTipText("Disconnect from the machine.");
 
-		setPreferredSize(new Dimension(700,60));
+		setPreferredSize(new Dimension(750,60));
 		
 		// Update initial state
-		machineStateChangedInternal(new MachineStateChangeEvent(null, new MachineState()));
+		machineStateChangedInternal(new MachineStateChangeEvent(null, new MachineState(MachineState.State.NOT_ATTACHED)));
 	}
 
 	public MainButton makeButton(String rolloverText, String source) {
@@ -232,8 +238,8 @@ public class MainButtonPanel extends BGPanel implements MachineListener, ActionL
 
 
 	public void actionPerformed(ActionEvent e) {
-		if (e.getSource() == simButton) {
-			editor.handleSimulate();
+		if (e.getSource() == generateButton) {
+			editor.runToolpathGenerator(false);
 		} else if (e.getSource() == buildButton) {
 			editor.handleBuild();
 		} else if (e.getSource() == uploadButton) {
@@ -253,7 +259,7 @@ public class MainButtonPanel extends BGPanel implements MachineListener, ActionL
 		} else if (e.getSource() == connectButton) {
 			editor.handleConnect();
 		} else if (e.getSource() == disconnectButton) {
-			editor.handleDisconnect();
+			editor.handleDisconnect(/*leavePreheatRunning=*/false);
 		} else if (e.getSource() == rcButton) {
 			editor.handleRealTimeControl();
 		}
@@ -268,42 +274,48 @@ public class MainButtonPanel extends BGPanel implements MachineListener, ActionL
 		});
 	}
 	
-	private void updateFromState(final MachineState s, final MachineController machine) {
-		boolean ready = s.isReady();
+	/**
+	 * Update the available and enabled buttons based on the latest machine state
+	 */
+	private void updateFromState(final MachineState s, final MachineInterface machine) {
+		boolean connected = s.isConnected();
+		boolean readyToPrint = s.canPrint();
+		boolean configurable = s.isConfigurable();
 		boolean building = s.isBuilding();
 		boolean paused = s.isPaused();
-		boolean hasGcode = (editor != null) && (editor.getBuild() != null) &&
-			editor.getBuild().getCode() != null;
+
 		boolean hasMachine = machine != null;
 		boolean hasPlayback = hasMachine && 
-			(machine.driver != null) &&
-			(machine.driver instanceof SDCardCapture) &&
-			(((SDCardCapture)machine.driver).hasFeatureSDCardCapture());
-		simButton.setEnabled(hasMachine && !building && hasGcode);
-		fileButton.setEnabled(hasMachine && !building && hasGcode);
-		buildButton.setEnabled(ready && hasGcode);
-		uploadButton.setEnabled(ready && hasPlayback && hasGcode);
-		playbackButton.setEnabled(ready && hasPlayback);
-		pauseButton.setEnabled(building);
+				(machine.getDriver() != null) &&
+				(machine.getDriver() instanceof SDCardCapture) &&
+				(((SDCardCapture)machine.getDriver()).hasFeatureSDCardCapture());
+		boolean hasGcode = (editor != null) && (editor.getBuild() != null) &&
+				editor.getBuild().getCode() != null;
+		boolean hasModel = (editor != null) && (editor.getBuild() != null) &&
+				editor.getBuild().getModel() != null;
+		
+		fileButton.setEnabled(!building && hasGcode);
+		buildButton.setEnabled(readyToPrint);
+		generateButton.setEnabled(hasModel);
+		playbackButton.setEnabled(readyToPrint && hasPlayback);
+		pauseButton.setEnabled(building && connected);
 		stopButton.setEnabled(building);
 
 		pauseButton.setSelected(paused);
 		rcButton.setEnabled(building);
 
-		MachineState.Target runningTarget = s.isBuilding()?s.getTarget():null;
+		Machine.JobTarget runningTarget = s.isBuilding()?machine.getTarget():null;
 		
-		simButton.setSelected(runningTarget == MachineState.Target.SIMULATOR);
-		buildButton.setSelected(runningTarget == MachineState.Target.MACHINE);
-		uploadButton.setSelected(runningTarget == MachineState.Target.SD_UPLOAD);
-		fileButton.setSelected(runningTarget == MachineState.Target.FILE);
-		playbackButton.setSelected(runningTarget == MachineState.Target.NONE);
+		buildButton.setSelected(runningTarget == Machine.JobTarget.MACHINE);
+		fileButton.setSelected(runningTarget == Machine.JobTarget.FILE);
+		playbackButton.setSelected(runningTarget == Machine.JobTarget.NONE);
 
-		boolean connected = s.isConnected() && hasMachine && machine.isInitialized();
 		resetButton.setEnabled(connected); 
 		disconnectButton.setEnabled(connected);
-		connectButton.setEnabled(hasMachine && !connected);
-		cpButton.setEnabled(ready);
+		connectButton.setEnabled(!connected);
+		cpButton.setEnabled(configurable);
 		rcButton.setVisible(editor.supportsRealTimeControl());
+		
 //		if (!editor.supportsRealTimeControl()) 
 //		{
 			// how to hide this button without taking up any space???
@@ -312,10 +324,9 @@ public class MainButtonPanel extends BGPanel implements MachineListener, ActionL
 			// FIXME: this changes the ordering of the buttons
 //			add(rcButton);
 //		}
-		
 	}
 
-	public void updateFromMachine(final MachineController machine) {
+	public void updateFromMachine(final MachineInterface machine) {
 		MachineState s = new MachineState(MachineState.State.NOT_ATTACHED);
 		if (machine != null) {
 			s = machine.getMachineState();
@@ -325,7 +336,7 @@ public class MainButtonPanel extends BGPanel implements MachineListener, ActionL
 
 	public void machineStateChangedInternal(final MachineStateChangeEvent evt) {
 		MachineState s = evt.getState();
-		MachineController machine = evt.getSource();
+		MachineInterface machine = evt.getSource();
 		updateFromState(s,machine);
 	}
 

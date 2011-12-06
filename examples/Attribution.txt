@@ -19,10 +19,17 @@ The models included here are:
   http://creativecommons.org/licenses/BSD/
   http://www.thingiverse.com/thing:5504
 
-* Whistle_v2.stl: Whistle by Zaggo
+* Whistle_v1.stl: Whistle by Zaggo
   Shared under CC-BY-NC 3.0 license
   http://creativecommons.org/licenses/by-nc/3.0/
   http://www.thingiverse.com/thing:1046
+  Cleaned up by Cibomahto:
+  http://www.thingiverse.com/thing:8391
+
+* Antique_Car.stl: Antique Car by RobbinsvilleHighSchool
+  Shared under CC-BY-NC-SA 3.0 license
+  http://creativecommons.org/licenses/by-nc-sa/3.0/
+  http://www.thingiverse.com/thing:6197
 
 * vase3.stl: Faceted Vase 3 by Zydac
   Released into the public domain
@@ -37,6 +44,11 @@ The models included here are:
   of same by Time4PlanB)
   Released into the public domain
   http://www.thingiverse.com/thing:5031
+
+* 20mmbox.stl: 20 mm calibration box by Spacexula (Derivative of 40mm cube by bre)
+  Shared under the CC BY-SA 3.0 license
+  http://creativecommons.org/licenses/by-sa/3.0/
+  http://www.thingiverse.com/thing:2064
 
 * wfu_cbi_skull.stl: Skull by bothacker
   Shared under the CC BY-SA 3.0 license

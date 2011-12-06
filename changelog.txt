@@ -1,3 +1,102 @@
+0028 ReplicatorG
+* Fixed toolhead setting function to work with new and old firmware
+* Improvements to localization of decimal numbers
+* Fixed preferences window, only one can be open at any time
+* Fixed description of wipes in Dualstrusion window
+* Disabled 'swap toolhead' while build in progress
+* Removed 'Print to SD' button because it was slow, buggy, and rarely used
+* Removed various bits of old, unused code from the top bar
+* Added 'Generate GCode' button to top bar
+* Changed functionality of 'Build' button, it can now genrate gcode and build in one click
+* Improved temperature monitoring
+* Added machine info to the machine status bar (green/red info bar)
+* Added 'Preheat' function to bring bot up to temperature, 
+* Added preheat temperature settings to preferences
+* Extensive cleanup of some DualStrusion code
+* Fixed 'move' tool layout
+* Minor improvements to ConfirmationDialog code
+* Updates to Dualstrusion HBP behavior
+* Clarification of several text panels
+* Added Warnings on Extruder Dialogs that have side effects in Dualstrusion 
+* Fixed pre-heat temperature not setting in preferences panel
+* Added heat range warnings to pre-heat temperature setting
+* Fixed bug from Alpha that prevented print-from-stl use in some cases
+* Fixed bug in extruder and mobo preferences that caused float num errors
+* Updated so locale formats work in Java 5 
+
+0027 ReplicatorG
+* Fan changes to support ABP on Mk7 hardware (using Firmware 3.1 or newer only)
+* Individual axis disable added
+* Merged dualstrusion branch tools, fixed some bugs in references
+* Merged in temperature_log branch, for using M310 to start a temperature log, and M311 to end logging
+* Added fix for reading bed temperature to the current machine model. 
+* Added logging for HeatedBuildPlatform, to use add 'hbp_log=true' to the tool attributes in
+* your tool of choice within machines/thingomatic.xml
+* Fixed localization problems for decimal formatting
+* Updated Replicat.org MCode and GCode documentation
+* Added off-line documentation from replicat.org
+* Added a Thingiverse menu item, just for fun!
+* Removed 'autoload last file' if replicatorG crashed (to avoid auto-crashing)
+* added 'Upgraded' TOM Filament guide to the upgrades menu
+* added production test scripts to File | Scripts | Utility
+* Added fixes for skeinforge lockups, where skeinforge timeout locks the main program
+* Added correct G0 behavior for MakerBot series machines
+* Added checks so build to SD card fails gracefully on error
+* Fixed lockup problem when a nonexistant toolhead is selected
+* Fixed problems for build to SD fallback defaults causing problems
+* Removed skeinforge 31 from toolpath options
+* Added skeinforge 40 (experimental) and skeinforge 44 (experimental) to toolpath options
+* Added a warning check for unrecognized GCode commands on print
+* Fixed misc. window resize problems
+* Fixed toolhead selection problems for some Heated Build Platform problems with dualstrusion
+* Renaming some features or clarity, removed some dead features/gui elements
+* Full testing of Dualstrusion, refactoring of DualStrusion codebase
+* Several bugfixes for null object cases
+* re-enabled right-click menu
+
+
+0026 ReplicatorG
+* Add Machine information panel
+* Add support for control of a regulated cooling fan
+* Bugfix: save operation was broken by the color change feature.
+* Bugfix: Don't force refresh of machine position, because this caused
+problems with concurrent move requests.
+* Add color selector dialog to preferences, to allow model &
+background color to be configured.
+* Clarification: fix homing comments for thing-o-matic start.gcode
+* Bugfix: handle multiple stepper toolheads correctly
+* Add tool command recognition to the s3g decompiler.
+* Add virtual printer, to make testing easier
+* Add experimental cupcake profile for gen3 machines with stepper extruders.
+* display 2 digits of precision in the control panel's axis position indicator.
+* Revert "Update launch4j version. Need to build on a windows box to
+upgrade ReplicatorG.exe"
+* Actually, don't make continuous jog default, it would break printers
+that don't support it.
+* Make continuous jog mode the default preference.
+
+0025 ReplicatorG
+New features:
+* Print-O-Matic integrated and enabled by default
+* Store/recall home position support: No more need to modify start.gcode when your Z height changes.
+* Drag & Drop support: drop .stl or .gcode files into ReplicatorG to open them.
+* Frostruder support for Thing-O-Matic
+* Support for local firmware.xml files (file:// urls)
+* Support for internet proxies, using the default Java proxy configuration.
+* Added Skeinforge 40, for experimental purposes
+* Updates to most core libraries
+* Skeinforge 35 is now default
+* Wipe commands removed from cupcake profiles
+* HPB default temperature lowered to 110 degrees
+
+Bug fixes:
+* Rewritten gcode execution engine: fixes many bugs, such as 'gcode parser is null'
+* Homing feedrate specified in machine profile
+* Numerous Ultimaker, RaMPS, and RepRap improvements
+* Numerous UI tweaks to improve look&feel on OS X
+* Resize main window so tooltips don't refresh the whole view
+
+
 0024 ReplicatorG
 * Support for stepper-based extruders on G4 hardware
 * Early reversal for stepper-driven extruders

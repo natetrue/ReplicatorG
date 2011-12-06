@@ -32,6 +32,8 @@ public enum MotherboardCommandCode {
 	GET_POSITION_EXT(21),
 	EXTENDED_STOP(22),
 	
+	GET_COMMUNICATION_STATS(25),
+	
 	// QUEUE_POINT_INC(128) obsolete
 	QUEUE_POINT_ABS(129),
 	SET_POSITION(130),
@@ -45,7 +47,10 @@ public enum MotherboardCommandCode {
 	QUEUE_POINT_EXT(139),
 	SET_POSITION_EXT(140),
 	WAIT_FOR_PLATFORM(141),
-	QUEUE_POINT_NEW(142);
+	QUEUE_POINT_NEW(142),
+	
+	STORE_HOME_POSITIONS(143),
+	RECALL_HOME_POSITIONS(144);
 	
 	private int code;
 	private MotherboardCommandCode(int code) {

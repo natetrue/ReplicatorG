@@ -32,10 +32,10 @@ package replicatorg.app;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Font;
-import java.awt.Frame;
 import java.awt.Image;
 import java.awt.MediaTracker;
 import java.awt.Toolkit;
+//import java.awt.TrayIcon;
 import java.awt.event.ActionListener;
 import java.awt.event.KeyEvent;
 import java.awt.image.BufferedImage;
@@ -54,12 +54,14 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.PrintWriter;
 import java.net.URL;
+import java.text.DecimalFormat;
+import java.text.DecimalFormatSymbols;
+import java.text.NumberFormat;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.StringTokenizer;
 import java.util.Vector;
 import java.util.logging.FileHandler;
-import java.util.logging.Handler;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.logging.SimpleFormatter;
@@ -68,7 +70,6 @@ import java.util.prefs.Preferences;
 
 import javax.imageio.ImageIO;
 import javax.swing.JComponent;
-import javax.swing.JOptionPane;
 import javax.swing.JPopupMenu;
 import javax.swing.JRootPane;
 import javax.swing.KeyStroke;
@@ -76,6 +77,8 @@ import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
 
 import replicatorg.app.ui.MainWindow;
+import replicatorg.app.ui.NotificationHandler;
+import replicatorg.machine.MachineLoader;
 import replicatorg.uploader.FirmwareUploader;
 import ch.randelshofer.quaqua.QuaquaManager;
 
@@ -97,7 +100,8 @@ public class Base {
 	/**
 	 * The version number of this edition of replicatorG.
 	 */
-	public static final int VERSION = 24;
+	public static final int VERSION = 28;
+	
 	/**
 	 * The textual representation of this version (4 digits, zero padded).
 	 */
@@ -106,7 +110,7 @@ public class Base {
 	/**
 	 * The machine controller in use.
 	 */
-	private static MachineController machine = null;
+	private static MachineLoader machineLoader;
 	
 	/**
 	 * The user preferences store.
@@ -114,35 +118,56 @@ public class Base {
 	static public Preferences preferences = Preferences.userNodeForPackage(Base.class);
 
 	/**
+	*  Simple base data capture logger. So simple, but useful.
+	*/
+	static public DataCapture capture;
+	
+	/**
 	 * The general-purpose logging object.
 	 */
 	public static Logger logger = Logger.getLogger("replicatorg.log");
+	public static FileHandler logFileHandler = null;
+	public static String logFilePath = null;
+	
+	/**
+	 * Start logging on the given path. If the path is null, stop file logging.
+	 * @param path The path to log messages to
+	 */
+	public static void setLogFile(String path) {
+		boolean useLogFile = Base.preferences.getBoolean("replicatorg.useLogFile",false);
+
+		if (useLogFile && path.equals(logFilePath)) { return; }
+		
+		if (logFileHandler != null) {
+			logger.removeHandler(logFileHandler);
+			logFileHandler = null;
+		}
+		
+		logFilePath = path;
+		
+		if (useLogFile && logFilePath != null && logFilePath.length() > 0) {
+			boolean append = true;
+			try {
+				FileHandler fh = new FileHandler(logFilePath, append);
+				fh.setFormatter(new SimpleFormatter());
+				fh.setLevel(Level.ALL);
+				logFileHandler = fh;
+				logger.addHandler(fh);
+			} catch (IOException ioe) {
+				String msg = "LOG INIT ERROR: Could not open file.\n"+ioe.getMessage();
+				System.err.println(msg); // In case logging is not yet enabled
+				logger.log(Level.SEVERE,msg);
+			}
+		}
+	}
+	
 	{	
 		String levelName = Base.preferences.get("replicatorg.debuglevel", Level.INFO.getName());
 		Level l = Level.parse(levelName);
 		logger.setLevel(l);
 
-/*
- * 	TODO: Add log-to-file option to preferences.
-		// Add logfile handler
-	    try {
-	      boolean append = true;
-	      FileHandler fh = new FileHandler("RepG.log", append);
-	      //fh.setFormatter(new XMLFormatter());
-	      fh.setFormatter(new SimpleFormatter());
-	      logger.addHandler(fh);
-	    }
-	    catch (IOException e) {
-	      e.printStackTrace();
-	    }
-		
-		// Configure handlers to use selected level
-	    Handler[] handlers =
-	    logger.getHandlers();
-	    for ( int index = 0; index < handlers.length; index++ ) {
-	    	handlers[index].setLevel( l );
-	    }
-*/
+		String logPath = Base.preferences.get("replicatorg.logpath", "");
+		setLogFile(logPath);
 	}
 	/**
 	 * Path of filename opened on the command line, or via the MRJ open document
@@ -189,6 +214,38 @@ public class Base {
 		return getUserFile(path,true);
 	}
 
+	/** Local storage for localized NumberFormat. */
+	static private NumberFormat localNF = NumberFormat.getInstance();
+	{
+		localNF.setMinimumFractionDigits(2);
+	}
+	
+	/**
+	 * Get the NumberFormat object used for parsing and displaying numbers in the localized
+	 * format. This should be used for all non-GCode input and output.
+	 */
+	static public NumberFormat getLocalFormat() {
+		return localNF;
+	}
+	
+	/** Local storage for gcode NumberFormat. */
+	static private NumberFormat gcodeNF;
+	{
+		// We don't use DFS.getInstance here to maintain compatibility with Java 5
+        DecimalFormatSymbols dfs;
+ 	 	gcodeNF = new DecimalFormat("#0.0");
+ 	 	dfs = ((DecimalFormat)gcodeNF).getDecimalFormatSymbols();
+ 	 	dfs.setDecimalSeparator('.');
+	}
+	
+	/**
+	 * Get the NumberFormat object used for GCode generation and parsing. All gcode should be
+	 * interpreted and generated by using this format object.
+	 */
+	static public NumberFormat getGcodeFormat() {
+		return gcodeNF;
+	}
+	
 	/**
 	 * 
 	 * @param path The relative path to the file in the .replicatorG directory
@@ -248,7 +305,12 @@ public class Base {
 	/**
 	 * The main UI window.
 	 */
-	MainWindow editor = null;
+	static MainWindow editor = null;
+	
+	public static MainWindow getEditor() {
+		return editor;
+	}
+	private static NotificationHandler notificationHandler;
 
 	private static final String[] supportedExtensions = {
 			"gcode", "ngc",
@@ -273,6 +335,7 @@ public class Base {
 		return false;
 	}
 	
+
 	static public void main(String args[]) {
 
 		// make sure that this is running on java 1.5 or better.
@@ -287,6 +350,8 @@ public class Base {
 	         // Default to sun's XML parser, PLEASE.  Some apps are installing some janky-ass xerces.
 	         System.setProperty("javax.xml.parsers.DocumentBuilderFactory",
 	        		 "com.sun.org.apache.xerces.internal.jaxp.DocumentBuilderFactoryImpl");
+		 System.setProperty("com.apple.mrj.application.apple.menu.about.name",
+				    "ReplicatorG");
 		}
 		
 		// parse command line input
@@ -343,6 +408,11 @@ public class Base {
     		}
     	}
 
+		// Use the default system proxy settings
+		System.setProperty("java.net.useSystemProxies", "true");
+    	// Use antialiasing implicitly
+		System.setProperty("j3d.implicitAntialiasing", "true");
+		
 		// Start the firmware check thread.
 		FirmwareUploader.checkFirmware();
 		
@@ -382,7 +452,7 @@ public class Base {
 
 		         // set the Quaqua Look and Feel in the UIManager
 		         UIManager.setLookAndFeel("ch.randelshofer.quaqua.QuaquaLookAndFeel");
-		         
+		         System.setProperty("apple.laf.useScreenMenuBar", "true");
 
 			} else if (Base.isLinux()) {
 				// For 0120, trying out the gtk+ look and feel as the default.
@@ -404,25 +474,32 @@ public class Base {
 
 		// use native popups so they don't look so crappy on osx
 		JPopupMenu.setDefaultLightWeightPopupEnabled(false);
-
+		
 		SwingUtilities.invokeLater(new Runnable() {
-		    public void run() {
+//		    private TrayIcon trayIcon;
+
+			public void run() {
 				// build the editor object
 				editor = new MainWindow();
+				
+				notificationHandler = NotificationHandler.Factory.getHandler(editor, Base.preferences.getBoolean("ui.preferSystemTrayNotifications", false));
+
 				// Get sizing preferences. This is an issue of contention; let's look at how
 				// other programs decide how to size themselves.
 				editor.restorePreferences();
 				// add shutdown hook to store preferences
-				Runtime.getRuntime().addShutdownHook(new Thread() {
+				Runtime.getRuntime().addShutdownHook(new Thread("Shutdown Hook") {
 					final private MainWindow w = editor; 
 					public void run() {
 						w.onShutdown();
 					}
 				});
-				// load up our default machine
+				
 				boolean autoconnect = Base.preferences.getBoolean("replicatorg.autoconnect",true);
-				String machineName = preferences.get("machine.name",null); 
+				String machineName = preferences.get("machine.name",null);
+				
 				editor.loadMachine(machineName, autoconnect);
+				
 				// show the window
 				editor.setVisible(true);
 				UpdateChecker.checkLatestVersion(editor);
@@ -544,33 +621,6 @@ public class Base {
 				JComponent.WHEN_IN_FOCUSED_WINDOW);
 	}
 
-	// .................................................................
-
-	static public void showReference(String referenceFile) {
-		openURL(Base.getContents("reference" + File.separator + referenceFile));
-	}
-
-	static public void showReference() {
-		showReference("index.html");
-	}
-
-	static public void showEnvironment() {
-		showReference("Guide_Environment.html");
-	}
-
-	static public void showTroubleshooting() {
-		showReference("Guide_Troubleshooting.html");
-	}
-
-	/**
-	 * Opens the local copy of the FAQ that's included with the Processing
-	 * download.
-	 */
-	static public void showFAQ() {
-		showReference("faq.html");
-	}
-
-	// .................................................................
 
 	/**
 	 * Implements the cross-platform headache of opening URLs TODO This code
@@ -733,21 +783,16 @@ public class Base {
 	 * bummer, but something to notify the user about.
 	 */
 	static public void showMessage(String title, String message) {
-		if (title == null)
-			title = "Message";
-		JOptionPane.showMessageDialog(new Frame(), message, title,
-				JOptionPane.INFORMATION_MESSAGE);
+		notificationHandler.showMessage(title,message);
 	}
 
 	/**
 	 * Non-fatal error message with optional stack trace side dish.
 	 */
 	static public void showWarning(String title, String message, Exception e) {
-		if (title == null)
-			title = "Warning";
-		JOptionPane.showMessageDialog(new Frame(), message, title,
-				JOptionPane.WARNING_MESSAGE);
 
+		notificationHandler.showWarning(title, message, e);
+		
 		if (e != null)
 			e.printStackTrace();
 	}
@@ -758,17 +803,13 @@ public class Base {
 	 * ReplicatorG to continue running.
 	 */
 	static public void quitWithError(String title, String message, Throwable e) {
-		if (title == null)
-			title = "Error";
-		JOptionPane.showMessageDialog(new Frame(), message, title,
-				JOptionPane.ERROR_MESSAGE);
 
+		notificationHandler.showError(title, message, e);
+		
 		if (e != null)
 			e.printStackTrace();
 		System.exit(1);
 	}
-
-	// ...................................................................
 
 	static public String getContents(String what) {
 		String basePath = System.getProperty("user.dir");
@@ -960,19 +1001,12 @@ public class Base {
 			}
 		}
 	}
-
-	/**
-	 * our singleton interface to get our machine.
-	 */
-	static public MachineController loadMachine(String name) {
-		if (machine == null || !machine.getDescriptorName().equals(name)) {
-			machine = MachineFactory.load(name);
+	
+	/** Get a reference to the currently selected machine **/
+	static public MachineLoader getMachineLoader() {
+		if (machineLoader == null) {
+			machineLoader = new MachineLoader();
 		}
-		return machine;
+		return machineLoader;
 	}
-
-	static public MachineController getMachine() {
-		return machine;
-	}
-
 }

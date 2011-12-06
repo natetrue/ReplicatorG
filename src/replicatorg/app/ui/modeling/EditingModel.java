@@ -1,5 +1,6 @@
 package replicatorg.app.ui.modeling;
 
+import java.awt.Color;
 import java.util.Enumeration;
 
 import javax.media.j3d.Appearance;
@@ -8,12 +9,10 @@ import javax.media.j3d.BranchGroup;
 import javax.media.j3d.Geometry;
 import javax.media.j3d.GeometryArray;
 import javax.media.j3d.Group;
-import javax.media.j3d.LineAttributes;
 import javax.media.j3d.Material;
 import javax.media.j3d.Node;
 import javax.media.j3d.PolygonAttributes;
 import javax.media.j3d.Shape3D;
-import javax.media.j3d.Switch;
 import javax.media.j3d.Transform3D;
 import javax.media.j3d.TransformGroup;
 import javax.vecmath.AxisAngle4d;
@@ -21,6 +20,7 @@ import javax.vecmath.Color3f;
 import javax.vecmath.Point3d;
 import javax.vecmath.Vector3d;
 
+import replicatorg.app.Base;
 import replicatorg.app.ui.MainWindow;
 import replicatorg.model.BuildModel;
 
@@ -46,9 +46,9 @@ public class EditingModel {
 	final protected BuildModel model;
 
 	/**
-	 * The switch object that allows us to toggle between wireframe and solid modes.
+	 * Material definition for the model, maintained so that we can update the color without reloading.
 	 */
-	private Switch objectSwitch = null;
+	Material objectMaterial = null;
 
 	/** The group which represents the displayable subtree.
 	 */
@@ -76,12 +76,12 @@ public class EditingModel {
 	 * Cache of the original shape from the model.
 	 */
 	Shape3D originalShape;
+
 	
 	/**
 	 * Create the branchgroup that will display the object.
 	 */
 	private BranchGroup makeShape(BuildModel model) {
-		objectSwitch = new Switch();
 		originalShape = model.getShape();
 		if (originalShape.getGeometry() == null) {
 			BranchGroup wrapper = new BranchGroup();
@@ -91,38 +91,23 @@ public class EditingModel {
 		}
 
 		Shape3D solidShape = (Shape3D)originalShape.cloneTree();
-		Shape3D edgeClone = (Shape3D)originalShape.cloneTree();
-		objectSwitch.addChild(solidShape);
-		objectSwitch.addChild(edgeClone);
-		objectSwitch.setWhichChild(0);
-		objectSwitch.setCapability(Switch.ALLOW_SWITCH_WRITE);
-		objectSwitch.setCapability(TransformGroup.ALLOW_CHILDREN_READ);
 		solidShape.setCapability(Shape3D.ALLOW_GEOMETRY_READ);
 		solidShape.getGeometry().setCapability(GeometryArray.ALLOW_COUNT_READ);
 		solidShape.getGeometry().setCapability(GeometryArray.ALLOW_COORDINATE_READ);
 		solidShape.getGeometry().setCapability(GeometryArray.ALLOW_NORMAL_READ);
-		edgeClone.setCapability(Shape3D.ALLOW_GEOMETRY_READ);
-		edgeClone.getGeometry().setCapability(GeometryArray.ALLOW_COUNT_READ);
-		edgeClone.getGeometry().setCapability(GeometryArray.ALLOW_COORDINATE_READ);
-		edgeClone.getGeometry().setCapability(GeometryArray.ALLOW_NORMAL_READ);
-		Color3f color = new Color3f(1.0f,1.0f,1.0f); 
-		Material m = new Material();
-		m.setAmbientColor(color);
-		m.setDiffuseColor(color);
+		
+		objectMaterial = new Material();
+		objectMaterial.setCapability(Material.ALLOW_COMPONENT_WRITE);
+		
+		updateModelColor();
 		Appearance solid = new Appearance();
-		solid.setMaterial(m);
+		solid.setMaterial(objectMaterial);
 		PolygonAttributes pa = new PolygonAttributes();
 		pa.setPolygonMode(PolygonAttributes.POLYGON_FILL);
 		pa.setCullFace(PolygonAttributes.CULL_NONE);
 		pa.setBackFaceNormalFlip(true);
-	    solid.setPolygonAttributes(pa);
+		solid.setPolygonAttributes(pa);
 		solidShape.setAppearance(solid);
-
-		Appearance edges = new Appearance();
-		edges.setLineAttributes(new LineAttributes(1,LineAttributes.PATTERN_SOLID,true));
-		edges.setPolygonAttributes(new PolygonAttributes(PolygonAttributes.POLYGON_LINE,
-				PolygonAttributes.CULL_NONE,0));
-		edgeClone.setAppearance(edges);
 
 		BranchGroup wrapper = new BranchGroup();
 
@@ -133,7 +118,7 @@ public class EditingModel {
 
 		wrapper.addChild(shapeTransform);
 
-		shapeTransform.addChild(objectSwitch);
+		shapeTransform.addChild(solidShape);
 		wrapper.setCapability(BranchGroup.ALLOW_DETACH);
 		wrapper.compile();
 		return wrapper;
@@ -141,19 +126,21 @@ public class EditingModel {
 
 	public BuildModel getBuildModel() { return model; }
 	
-	public BranchGroup getGroup() {
-		if (group == null) {
-			group = makeShape(model); 
+	public void updateModelColor() {
+		if (objectMaterial != null) {
+			Color modelColor = new Color(Base.preferences.getInt("ui.modelColor",-19635));
+			
+			objectMaterial.setAmbientColor(new Color3f(modelColor));
+			objectMaterial.setDiffuseColor(new Color3f(modelColor));
 		}
-		return group;
 	}
 	
-	public void showEdges(boolean showEdges) {
-		if (showEdges) {
-			objectSwitch.setWhichChild(1);
-		} else {
-			objectSwitch.setWhichChild(0);
+	public BranchGroup getGroup() {
+		if (group == null) {
+			group = makeShape(model);
 		}
+		
+		return group;
 	}
 		
 	public ReferenceFrame getReferenceFrame() {

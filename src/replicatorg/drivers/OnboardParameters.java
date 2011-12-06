@@ -11,6 +11,9 @@ public interface OnboardParameters {
 	String getMachineName();
 	void setMachineName(String machineName);
 	
+	double getAxisHomeOffset(int axis);
+	void setAxisHomeOffset(int axis, double d);
+	
 	public enum EndstopType {
 		NOT_PRESENT((byte)0x00),
 		INVERTED((byte)0x9F),
@@ -44,6 +47,10 @@ public interface OnboardParameters {
 	int getT0(int which);
 	int getBeta(int which);
 	
+	
+	boolean getCoolingFanEnabled();
+	int getCoolingFanSetpoint();
+	void setCoolingFanParameters(boolean enabled, int setpoint);
 
 	class BackoffParameters {
 		public int stopMs;
@@ -77,10 +84,43 @@ public interface OnboardParameters {
 	ExtraFeatures getExtraFeatures();
 	void setExtraFeatures(ExtraFeatures features);
 	
+	public enum EstopType {
+		NOT_PRESENT((byte)0x00),
+		ACTIVE_HIGH((byte)0x01),
+		ACTIVE_LOW((byte)0x02);
+		
+		final byte value;
+		
+		EstopType(byte value) {
+			this.value = value;
+		}
+		
+		public byte getValue() { return value; }
+		
+		public static EstopType estopTypeForValue(byte value) {
+			if (value == ACTIVE_HIGH.value) { return ACTIVE_HIGH; }
+			if (value == ACTIVE_LOW.value) { return ACTIVE_LOW; }
+			return NOT_PRESENT;
+		}
+	}
+
+	EstopType getEstopConfig();
+	void setEstopConfig(EstopType estop);
+
 	/** Reset the onboard parameters on the motherboard to factory settings. */ 
 	void resetToFactory();
 
 	/** Reset the onboard parameters on the extruder controller to factory settings. */ 
 	void resetToolToFactory();
 
+	
+	public class CommunicationStatistics {
+		public int packetCount;
+		public int sentPacketCount;
+		public int packetFailureCount;
+		public int packetRetryCount;
+		public int noiseByteCount;
+	}
+	
+	CommunicationStatistics getCommunicationStatistics();
 }

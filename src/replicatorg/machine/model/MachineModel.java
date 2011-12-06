@@ -21,6 +21,8 @@
   Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 */
 
+// TODO: Separate the configuration portion of this from the machine control portion!
+
 package replicatorg.machine.model;
 
 import java.util.EnumMap;
@@ -53,7 +55,9 @@ public class MachineModel
 	
 	//feedrate information
 	private Point5d maximumFeedrates;
+	private Point5d homingFeedrates;
 	private Point5d stepsPerMM;
+        private Point5d timeOut;
 	
 	//our drive status
 	protected boolean drivesEnabled = true;
@@ -66,6 +70,9 @@ public class MachineModel
 
 	//our clamp models	
 	protected Vector<ClampModel> clamps;
+
+	//our wipe models @Noah
+	protected  Vector<WipeModel> wipes = new Vector<WipeModel>();
 	
 	// our build volume
 	protected BuildVolume buildVolume;
@@ -83,6 +90,8 @@ public class MachineModel
 		minimum = new Point5d();
 		maximum = new Point5d();
 		maximumFeedrates = new Point5d();
+		homingFeedrates = new Point5d();
+		timeOut = new Point5d();
 		stepsPerMM = new Point5d(1, 1, 1, 1, 1); //use ones, because we divide by this!
 		
 		currentTool.set(nullTool);
@@ -97,9 +106,47 @@ public class MachineModel
 		parseClamps();
 		parseTools();
 		parseBuildVolume();
-		
+		parseWipes();
+		parseExclusion();
 	}
-	
+	private void parseExclusion()
+	{
+		if(XML.hasChildNode(xml, "exclusion"))
+		{
+			Node exclusionNode = XML.getChildNodeByName(xml, "wipes");
+			NodeList exclusionKids = exclusionNode.getChildNodes();
+			for (int i=0; i<exclusionKids.getLength(); i++)
+			{
+				Node exclusionZoneNode = exclusionKids.item(i);
+				
+				if (exclusionZoneNode.getNodeName().equals("wipe"))
+				{
+					WipeModel wipe = new WipeModel(exclusionZoneNode);
+					wipes.add(wipe);
+				}
+			}
+		}
+	}
+	private void parseWipes()
+	{
+		if(XML.hasChildNode(xml, "wipes"))
+		{
+			Node wipesNode = XML.getChildNodeByName(xml, "wipes");
+			
+			//look through the axes.
+			NodeList wipesKids = wipesNode.getChildNodes();
+			for (int i=0; i<wipesKids.getLength(); i++)
+			{
+				Node wipeNode = wipesKids.item(i);
+				
+				if (wipeNode.getNodeName().equals("wipe"))
+				{
+					WipeModel wipe = new WipeModel(wipeNode);
+					wipes.add(wipe);
+				}
+			}
+		}
+	}
 	//load axes configuration
 	private void parseAxes()
 	{
@@ -123,8 +170,13 @@ public class MachineModel
 						//initialize values
 						double length = 0.0;
 						double maxFeedrate = 0.0;
+						double homingFeedrate = 0.0;
 						double stepspermm = 1.0;
 						Endstops endstops = Endstops.NONE;
+						// abritrary # of seconds to time out,
+						// can be overriden in .xml for each axis, the max val is all we use currently
+						double defaultTimeout = 20.0;
+						double timeout = 0;
 						//if values are missing, ignore them.
 						try {
 						 	length = Double.parseDouble(XML.getAttributeValue(axis, "length"));
@@ -133,10 +185,22 @@ public class MachineModel
 						 	maxFeedrate = Double.parseDouble(XML.getAttributeValue(axis, "maxfeedrate"));
 						} catch (Exception e) {}
 						try {
-						 	String spmm = XML.getAttributeValue(axis, "stepspermm");
-						 	if (spmm == null) spmm = XML.getAttributeValue(axis, "scale"); // Backwards compatibility
-						 	stepspermm = Double.parseDouble(spmm);
+							homingFeedrate = Double.parseDouble(XML.getAttributeValue(axis, "homingfeedrate"));
+						} catch (Exception e) {
+							// If the homing feedrate is not available, use the maximum feedrate instead
+							homingFeedrate = maxFeedrate;
+						}
+						try {
+							String spmm = XML.getAttributeValue(axis, "stepspermm");
+							if (spmm == null) spmm = XML.getAttributeValue(axis, "scale"); // Backwards compatibility
+							stepspermm = Double.parseDouble(spmm);
 						} catch (Exception e) {}
+						try {
+						        timeout = Double.parseDouble(XML.getAttributeValue(axis, "timeout"));
+						} catch (Exception e) {
+							// if no timeout is specified, used the default
+						       timeout = defaultTimeout;
+						}
 						String endstopStr = XML.getAttributeValue(axis, "endstops");
 						if (endstopStr != null) {
 							try {
@@ -147,11 +211,17 @@ public class MachineModel
 						}
 						maximum.setAxis(id,length);
 						maximumFeedrates.setAxis(id,maxFeedrate);
+						homingFeedrates.setAxis(id,homingFeedrate);
 						stepsPerMM.setAxis(id,stepspermm);
+						timeOut.setAxis(id,timeout);
 						this.endstops.put(id, endstops);
-						Base.logger.fine("Loaded axis " + id.name() + ": (Length: " + 
-								length + "mm, max feedrate: " + maxFeedrate + " mm/min, scale: " + 
-								stepspermm + " steps/mm)");
+						Base.logger.fine("Loaded axis " + id.name()
+								+ ": (Length: " + length 
+								+ "mm, max feedrate: " + maxFeedrate 
+								+ " mm/min, homing feedrate: " + homingFeedrate
+								+ " mm/min, scale: " + stepspermm + " steps/mm"
+								 + "seconds, timeout: " + timeout + ")");
+						
 					} catch (IllegalArgumentException iae) {
 						// Unrecognized axis!
 						Base.logger.severe("Unrecognized axis "+idStr+" found in machine descriptor!");
@@ -309,6 +379,21 @@ public class MachineModel
 	}
 
 	/*************************************
+	*  Convert millimeters to machine steps,
+	*  factoring in previous rounding error
+	*  and providing carryover error
+	*************************************/
+
+	public Point5d mmToSteps(Point5d mm, Point5d excess)
+	{
+		Point5d temp = new Point5d();
+		temp.mul(mm,stepsPerMM);
+		temp.add(excess);
+		temp.round(excess); // integer step counts please
+		return temp;
+	}
+
+	/*************************************
 	* Drive interface functions
 	*************************************/
 	public void enableDrives()
@@ -385,10 +470,9 @@ public class MachineModel
 		try {
 			return tools.get(index);
 		} catch (ArrayIndexOutOfBoundsException e) {
-			Base.logger.severe("Cannot get non-existant tool (#" + index + ".");
-			e.printStackTrace();
+			Base.logger.severe("Cannot get nonexistent tool (#" + index + ".");
+			//e.printStackTrace();
 		}
-		
 		return null;
 	}
 	public BuildVolume getBuildVolume()
@@ -400,7 +484,21 @@ public class MachineModel
 	{
 		return tools;
 	}
-
+	public Vector<WipeModel> getWipes()
+	{
+		return wipes;
+	}
+	public WipeModel getWipeByIndex(int index)
+	{
+		for(WipeModel wm : wipes)
+		{
+			if(wm.getIndex() == index)
+			{
+				return wm;
+			}
+		}
+		return null;
+	}
 	public void addTool(ToolModel t)
 	{
 		tools.add(t);
@@ -420,8 +518,16 @@ public class MachineModel
   public Point5d getMaximumFeedrates() {
     return maximumFeedrates;
   }
+
+  public Point5d getHomingFeedrates() {
+	    return homingFeedrates;
+	  }
   
-  /** returns the endstop configuration for the givin axis */
+  public Point5d getTimeOut() {
+      return timeOut;
+	  }
+  
+  /** returns the endstop configuration for the given axis */
   public Endstops getEndstops(AxisId axis)
   {
 	  return this.endstops.get(axis);

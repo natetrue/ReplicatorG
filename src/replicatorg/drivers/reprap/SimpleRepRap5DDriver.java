@@ -29,6 +29,7 @@ package replicatorg.drivers.reprap;
 
 import java.io.IOException;
 import java.text.DecimalFormat;
+import java.text.DecimalFormatSymbols;
 import java.util.Date;
 import java.util.EnumSet;
 import java.util.LinkedList;
@@ -78,7 +79,14 @@ public class SimpleRepRap5DDriver extends SerialDriver {
 		bufferSize = 0;
 		setInitialized(false);
 
-		df = new DecimalFormat("#.######");
+		//Thank you Alexey (http://replicatorg.lighthouseapp.com/users/166956)
+		DecimalFormatSymbols dfs = DecimalFormatSymbols.getInstance();
+		dfs.setDecimalSeparator('.');
+		df = new DecimalFormat("#.######", dfs);
+	}
+
+	public String getDriverName() {
+		return "SimpleRepRap5D";
 	}
 
 	public void loadXML(Node xml) {
@@ -128,16 +136,19 @@ public class SimpleRepRap5DDriver extends SerialDriver {
 		sendCommand("G90");
 	}
 
+	public boolean isPassthroughDriver() {
+		return true;
+	}
+	
 	/**
 	 * Actually execute the GCode we just parsed.
 	 */
-	public void execute() {
+	public void executeGCodeLine(String code) {
 		// we *DONT* want to use the parents one,
 		// as that will call all sorts of misc functions.
 		// we'll simply pass it along.
 		// super.execute();
-
-		sendCommand(getParser().getCommand());
+		sendCommand(code);
 	}
 
 	/**

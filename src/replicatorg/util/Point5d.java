@@ -16,6 +16,11 @@ public class Point5d {
 		values[0] = x; values[1] = y; values[2] = z;
 		values[3] = a; values[4] = b;
 	}
+	
+	public Point5d(double x, double y, double z) {
+		values[0] = x; values[1] = y; values[2] = z;
+		values[3] = 0; values[4] = 0;
+	}
 
 	public Point5d(Point5d p) {
 		System.arraycopy(p.values,0,values,0,DIMENSIONS);
@@ -45,6 +50,12 @@ public class Point5d {
 	public void add(Point5d p1) {
 		for (int idx = 0; idx < DIMENSIONS; idx++) {
 			values[idx] += p1.values[idx];
+		}
+	}
+
+	public void sub(Point5d p1) {
+		for (int idx = 0; idx < DIMENSIONS; idx++) {
+			values[idx] -= p1.values[idx];
 		}
 	}
 
@@ -87,7 +98,20 @@ public class Point5d {
 			values[idx] = Math.round(values[idx]);
 		}
 	}
-		
+
+	/**
+	 * Round each element of the point to the nearest integer
+	 * (using Math.round), storing the excess in the provided
+	 * point object.
+	 */
+	public void round(Point5d excess) {
+		for (int idx = 0; idx < DIMENSIONS; idx++) {
+			double rounded = Math.round(values[idx]);
+			excess.values[idx] = values[idx] - rounded;
+			values[idx] = rounded;
+		}
+	}
+
 	public void absolute() {
 		for (int idx = 0; idx < DIMENSIONS; idx++) {
 			values[idx] = Math.abs(values[idx]);

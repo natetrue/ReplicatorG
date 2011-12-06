@@ -25,6 +25,8 @@ package replicatorg.drivers;
 
 import java.io.IOException;
 import java.text.DecimalFormat;
+import java.text.DecimalFormatSymbols;
+import java.text.NumberFormat;
 import java.util.Date;
 import java.util.EnumSet;
 import java.util.LinkedList;
@@ -58,8 +60,11 @@ public class SerialPassthroughDriver extends SerialDriver {
 	 */
 	private String result = "";
 
-	private DecimalFormat df;
-
+    private NumberFormat df = Base.getLocalFormat();
+    {
+    	df.setMaximumFractionDigits(6);
+    }
+    
 	private byte[] responsebuffer = new byte[512];
 
 	public SerialPassthroughDriver() {
@@ -69,8 +74,6 @@ public class SerialPassthroughDriver extends SerialDriver {
 		commands = new LinkedList<Integer>();
 		bufferSize = 0;
 		setInitialized(false);
-
-		df = new DecimalFormat("#.######");
 	}
 
 	public void loadXML(Node xml) {
@@ -114,16 +117,19 @@ public class SerialPassthroughDriver extends SerialDriver {
 		sendCommand("G90");
 	}
 
+	public boolean isPassthroughDriver() {
+		return true;
+	}
+	
 	/**
 	 * Actually execute the GCode we just parsed.
 	 */
-	public void execute() {
+	public void executeGCodeLine(String code) {
 		// we *DONT* want to use the parents one,
 		// as that will call all sorts of misc functions.
 		// we'll simply pass it along.
 		// super.execute();
-
-		sendCommand(getParser().getCommand());
+		sendCommand(code);
 	}
 
 	/**

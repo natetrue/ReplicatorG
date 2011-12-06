@@ -1,11 +1,19 @@
 # git ignore
 # no dist files
+/docs/html/*
+/docs/latex/*
+/docs/replicat.org/*
 /dist
 dist-all
 build/jar
 build/classes
+examples/*.gcode
 *.pyc
 *.class
 \#*\#
 *~
 RepG.log
+ReplicatorG.app
+.classpath
+.project
+*.diff
