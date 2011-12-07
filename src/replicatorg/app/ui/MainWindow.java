@@ -1201,14 +1201,14 @@ ToolpathGenerator.GeneratorListener
 				platTarget = Base.preferences.getInt("build.preheatPlatform", 75);
 				if(isDualDriver())
 					tool1Target = Base.preferences.getInt("build.preheatTool1", 75);
-			}
-			machine.runCommand(new replicatorg.drivers.commands.SelectTool(0));
-			machine.runCommand(new replicatorg.drivers.commands.SetTemperature(tool0Target));
-			machine.runCommand(new replicatorg.drivers.commands.SetPlatformTemperature(platTarget));
-			if(isDualDriver())
-			{
-				machine.runCommand(new replicatorg.drivers.commands.SelectTool(1));
-				machine.runCommand(new replicatorg.drivers.commands.SetTemperature(tool1Target));
+    			machine.runCommand(new replicatorg.drivers.commands.SelectTool(0));
+    			machine.runCommand(new replicatorg.drivers.commands.SetTemperature(tool0Target));
+    			machine.runCommand(new replicatorg.drivers.commands.SetPlatformTemperature(platTarget));
+    			if(isDualDriver())
+    			{
+    				machine.runCommand(new replicatorg.drivers.commands.SelectTool(1));
+    				machine.runCommand(new replicatorg.drivers.commands.SetTemperature(tool1Target));
+    			}
 			}
 		}
 	}
